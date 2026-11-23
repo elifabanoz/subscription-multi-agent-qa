@@ -1,0 +1,58 @@
+{
+  "repository": "your-org/your-project",
+  "maxParallel": 2,
+  "timeoutMs": 900000,
+  "team": {
+    "maxTurnsPerAgent": 4,
+    "maxTurns": 24,
+    "maxMessages": 100,
+    "maxDurationMs": 3600000,
+    "claudeMaxTurns": 90
+  },
+  "providers": {
+    "codex": {
+      "command": "codex"
+    },
+    "claude": {
+      "command": "claude"
+    }
+  },
+  "tasks": [
+    {
+      "id": "inventory",
+      "provider": "codex",
+      "dependsOn": [],
+      "focus": "Map the architecture, trust boundaries, user roles, entry points, security controls and existing tests. Read executable code rather than relying on documentation. Identify the highest-risk surfaces for follow-up review."
+    },
+    {
+      "id": "identity-access",
+      "provider": "claude",
+      "dependsOn": ["inventory"],
+      "focus": "Review authentication, authorization, session handling, role transitions, tenant isolation and account recovery. Trace concrete request paths and distinguish source observations from tests that were not executed."
+    },
+    {
+      "id": "backend-api",
+      "provider": "codex",
+      "dependsOn": ["inventory"],
+      "focus": "Review backend and API behavior, validation, ownership checks, error handling, concurrency boundaries and external integrations. Identify concrete runtime scenarios needed to verify suspected issues."
+    },
+    {
+      "id": "frontend-client",
+      "provider": "claude",
+      "dependsOn": ["inventory"],
+      "focus": "Review web and mobile clients, navigation guards, state handling, empty and error states, accessibility-sensitive paths and client/server contract mismatches. Do not claim a live UI test ran."
+    },
+    {
+      "id": "data-privacy",
+      "provider": "codex",
+      "dependsOn": ["inventory"],
+      "focus": "Review data classification, logging, retention, deletion, consent, export, secret handling and third-party data flows. Flag claims that require legal or runtime confirmation."
+    },
+    {
+      "id": "cross-review",
+      "provider": "claude",
+      "dependsOn": ["identity-access", "backend-api", "frontend-client", "data-privacy"],
+      "focus": "Cross-check every handoff against source, reconcile contradictions, rank suspected issues by evidence and impact, and produce a concrete isolated test plan. Keep source observations, suspected issues and unexecuted tests clearly separated."
+    }
+  ]
+}

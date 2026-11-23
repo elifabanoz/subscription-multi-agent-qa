@@ -1,0 +1,14 @@
+runs/
+backups/
+node_modules/
+.env*
+*.local.json
+*.log
+*.zip
+coverage/
+.DS_Store
+
+# Tamamlanmış incelemeler ve müşteri/proje özel handoff'lar yerelde kalır.
+qa.*.config.json
+*-handoff*.md
+*-report*.md

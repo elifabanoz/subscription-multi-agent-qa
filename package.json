@@ -1,0 +1,22 @@
+{
+  "name": "subscription-multi-agent-qa",
+  "version": "0.1.0",
+  "description": "Source-focused multi-agent QA runner powered by local Codex and Claude subscription sessions",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/elifabanoz/subscription-multi-agent-qa.git"
+  },
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "npm test && npm run plan",
+    "setup:wsl": "bash scripts/bootstrap-wsl.sh",
+    "plan": "node src/cli.mjs plan",
+    "doctor": "node src/cli.mjs doctor",
+    "audit": "node src/cli.mjs audit",
+    "team": "node src/cli.mjs team"
+  }
+}

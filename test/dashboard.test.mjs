@@ -23,12 +23,22 @@ test('dashboard snapshot exposes explicit collaboration data without task histor
   assert.equal(snapshot.tasks[0].history, undefined);
   assert.equal(snapshot.outcome.status, 'running');
   assert.equal(snapshot.messages[0].body, '<script>alert(1)</script>');
+  assert.equal(snapshot.messages[0].inReplyTo, null);
   assert.deepEqual(snapshot.messageBudget, {
     messagesUsed: 1, repliesReserved: 1, effectiveUsed: 2, maxMessages: 20, maxMessagesPerAgent: 20,
     label: '1 message · 2/20 budget · 1 reply reserved · 20 sends/agent'
   });
   assert.equal(snapshot.operations[0].artifact, 'screen.png');
   assert.equal(snapshot.activity[0].from, 'frontend');
+});
+
+test('dashboard snapshot preserves reply relationships for readable conversations', () => {
+  const snapshot = dashboardSnapshot({ ...record, messages: [...record.messages, {
+    id: 'm2', from: 'backend', to: 'frontend', kind: 'answer', scenarioId: 'login',
+    body: 'The session is cleared.', inReplyTo: 'm1', acknowledged: false
+  }] });
+  assert.equal(snapshot.messages[1].inReplyTo, 'm1');
+  assert.equal(snapshot.messages[1].kind, 'answer');
 });
 
 test('dashboard outcome exposes failure, interruption and follow-up reasons', () => {

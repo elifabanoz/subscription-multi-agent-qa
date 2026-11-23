@@ -1,11 +1,13 @@
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import assert from 'node:assert/strict';
 import { chromium } from 'playwright';
 import { RunDashboard } from '../../src/dashboard.mjs';
 
 const sample = {
   repository: 'example/subscription-qa-target', commit: '4a2695b70877d673', mode: 'live-team-qa', totalTurns: 5,
+  limits: { maxMessages: 100 },
   taskDefinitions: [
     { id: 'inventory', provider: 'codex', role: 'architecture', focus: 'Map architecture, roles and trust boundaries.' },
     { id: 'frontend-client', provider: 'claude', role: 'client QA', focus: 'Exercise browser and Android login, navigation and error states.' },
@@ -18,7 +20,7 @@ const sample = {
   },
   messages: [
     { id: 'm1', from: 'backend-api', to: 'frontend-client', kind: 'question', scenarioId: 'session-expiry', body: 'Which client state is shown after a 401 response?', createdAt: new Date(Date.now() - 9000).toISOString(), acknowledged: true, replyId: 'm2' },
-    { id: 'm2', from: 'frontend-client', to: 'backend-api', kind: 'answer', scenarioId: 'session-expiry', body: 'The login screen is shown and the protected stack is cleared.', createdAt: new Date(Date.now() - 6000).toISOString(), acknowledged: false }
+    { id: 'm2', from: 'frontend-client', to: 'backend-api', kind: 'answer', scenarioId: 'session-expiry', body: 'The login screen is shown and the protected stack is cleared.', inReplyTo: 'm1', createdAt: new Date(Date.now() - 6000).toISOString(), acknowledged: false }
   ],
   activity: [
     { sequence: 1, timestamp: new Date(Date.now() - 12000).toISOString(), type: 'turn.started', agentId: 'frontend-client', provider: 'claude', turn: 2 },
@@ -40,6 +42,11 @@ const browser = await chromium.launch({ headless: true });
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
   await page.goto(url, { waitUntil: 'networkidle' });
+  assert.equal(await page.locator('.agent').count(), 3);
+  assert.equal(await page.locator('.chat-message').count(), 2);
+  assert.equal(await page.locator('.reply-context').count(), 1);
+  assert.match(await page.locator('.reply-context').textContent(), /Reply to backend-api/);
+  assert.equal(await page.locator('#conversationMeta').textContent(), '2 messages · 2/100 budget · 33 sends/agent');
   await page.screenshot({ path: screenshot, fullPage: true });
   console.log(JSON.stringify({ url, title: await page.title(), agents: await page.locator('.agent').count(),
     messages: await page.locator('.chat-message').count(), activity: await page.locator('.event').count(), screenshot }, null, 2));

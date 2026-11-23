@@ -6,6 +6,11 @@ Run Subscription Multi-Agent QA only on a trusted developer machine under Linux 
 the official `codex exec` and `claude -p` commands and must not require provider API keys. `npm run doctor`
 must confirm both local subscription sessions before an audit starts.
 
+Browser and Android live modes must target isolated local or staging systems. Never allow a production
+origin or attach a personal device containing real data. Browser navigation and network requests are restricted
+to configured origins. Android actions are restricted to a configured ADB serial; startup targets the configured
+package, but taps and back navigation can leave that app on the disposable test device.
+
 ## Sensitive data
 
 - Never commit API keys, CLI auth stores, `.env` files or generated audit reports.

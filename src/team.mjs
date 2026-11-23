@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { schema, validateConfig, doctor, runProcess, parseOutput, promptFor } from './core.mjs';
 import { MessageBus, teamTools } from './message-bus.mjs';
 import { executionFailure } from './diagnostics.mjs';
+import { LiveQaRuntime } from './live-runtime.mjs';
 
 export const teamSchema = { ...schema, required: [...schema.required, 'decision'],
   properties: { ...schema.properties, decision: { type: 'string', enum: ['done', 'waiting'] } } };
@@ -36,7 +37,7 @@ export function teamArguments(provider, schemaPath, bridgePath, brokerEnv, optio
 }
 
 export function teamPrompt(task, context) {
-  return promptFor(task, context.dependencies) + `
+  return promptFor(task, context.dependencies, { liveCapabilities: context.liveCapabilities }) + `
 LIVE TEAM MODE. Your agent identity is ${task.id}. You have tools on the qa MCP server.
 Call receive_messages NOW, at meaningful checkpoints and immediately before returning final JSON.
 You must make at least one receive_messages tool call per turn; otherwise this turn is invalid.
@@ -61,8 +62,8 @@ ${JSON.stringify(context.inbox)}
 All role checkpoints currently available (not runtime test passes):
 ${JSON.stringify(context.checkpoints).slice(0, 100000)}
 Return the requested JSON object including decision, summary, checks and handoff. Include at least
-one check, using not_tested if this turn only coordinated work. No real UI/browser/mail tools exist
-in this version; never claim a live test ran.\n`;
+one check, using not_tested if this turn only coordinated work. Never claim a live test ran unless
+you called a browser_* or android_* tool and cite its exact evidenceRef.\n`;
 }
 
 export async function scheduleTeam(config, bus, execute, { onChange = async () => {}, signal } = {}) {
@@ -116,6 +117,7 @@ export async function scheduleTeam(config, bus, execute, { onChange = async () =
             dependencies: Object.fromEntries(task.dependsOn.map(id => [id, states[id].result ?? null])),
             inbox: inbox.map(m => ({ ...m })), roster: config.tasks.map(t => ({ id: t.id, provider: t.provider, role: t.role ?? null })),
             checkpoints: Object.fromEntries(Object.entries(states).filter(([,s]) => s.result).map(([id, s]) => [id, s.result])),
+            liveCapabilities: { browser: Boolean(config.live?.browser?.enabled), android: Boolean(config.live?.android?.enabled) },
             signal: combined };
           const promise = (async () => {
             try {
@@ -196,10 +198,12 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
   await mkdir(out, { recursive: true, mode: 0o700 });
   const schemaPath = join(out, 'result.schema.json');
   await writeFile(schemaPath, JSON.stringify(teamSchema), { mode: 0o600 });
-  const record = { version: '0.1.0', mode: 'live-team-source-audit', repository: config.repository,
+  const runtime = new LiveQaRuntime(config, out);
+  const record = { version: '0.2.0', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
-    liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits, tasks: {}, messages: [] };
-  const bus = new MessageBus(config.tasks, { maxMessages: limits.maxMessages, eventPath: join(out, 'events.jsonl'), onEvent: event => {
+    liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits, tasks: {}, messages: [], live: runtime.summary() };
+  const bus = new MessageBus(config.tasks, { maxMessages: limits.maxMessages, eventPath: join(out, 'events.jsonl'),
+    toolHandler: (agentId, name, args) => runtime.call(agentId, name, args), onEvent: event => {
     if (event.type === 'message.sent') console.log(`[mesaj] ${event.message.from} → ${event.message.to} | ${event.message.scenarioId} | ${event.message.kind}`);
     if (event.type === 'turn.finished' && event.reason) console.log(`[durum] ${event.agentId}: ${event.state} | ${event.reason}`);
   } });
@@ -209,6 +213,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
   console.log(`Rapor: ${join(out, 'report.json')}`);
   const persist = async states => {
     record.tasks = states; record.messages = bus.messages;
+    record.live = runtime.summary(); record.liveUiTestsExecuted = record.live.operations.length > 0;
     await writeFile(join(out, 'report.json.tmp'), JSON.stringify(record, null, 2), { mode: 0o600 });
     await rename(join(out, 'report.json.tmp'), join(out, 'report.json'));
   };
@@ -228,7 +233,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
         if (execution.aborted || execution.timedOut || execution.overflow || execution.code !== 0)
           return executionFailure(task.provider, execution);
         try {
-          const result = parseOutput(task.provider, execution.stdout);
+          const result = parseOutput(task.provider, execution.stdout, { liveEvidence: runtime.evidenceIds(task.id) });
           if (!['done', 'waiting'].includes(result.decision)) throw new Error();
           return { state: 'completed', result };
         } catch { return executionFailure(task.provider, execution, 'INVALID_OR_FAILED_PROVIDER_RESULT'); }
@@ -238,5 +243,5 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     record.finishedAt = new Date().toISOString();
     await persist(outcome.states);
     return record;
-  } finally { await bus.close(); }
+  } finally { await runtime.close(); await bus.close(); }
 }

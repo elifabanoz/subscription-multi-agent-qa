@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import { validateConfig, doctor, audit } from './core.mjs';
 import { teamAudit, teamLimits } from './team.mjs';
+import { LiveQaRuntime } from './live-runtime.mjs';
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 async function main() {
@@ -15,12 +16,22 @@ async function main() {
   }
   const config = validateConfig(JSON.parse(await readFile(resolve(options.config ?? join(root, 'qa.config.json')), 'utf8')));
   if (command === 'plan') {
-    console.log(JSON.stringify({ modes: ['source-audit', 'live-team-source-audit'], team: teamLimits(config), maxParallel: config.maxParallel, perProviderParallel: 1,
+    console.log(JSON.stringify({ modes: ['source-audit', 'live-team-source-audit', 'controlled-live-qa'],
+      liveCapabilities: { browser: Boolean(config.live?.browser?.enabled), android: Boolean(config.live?.android?.enabled) },
+      team: teamLimits(config), maxParallel: config.maxParallel, perProviderParallel: 1,
       automaticApiFallback: false, liveUiTestsExecuted: false, tasks: config.tasks }, null, 2)); return;
   }
   if (command === 'doctor') {
     const result = await doctor(config); console.log(JSON.stringify(result, null, 2));
     if (Object.values(result).some(p => !p.ready)) process.exitCode = 2;
+    return;
+  }
+  if (command === 'live-doctor') {
+    const runtime = new LiveQaRuntime(config, root);
+    try {
+      const result = await runtime.doctor(); console.log(JSON.stringify(result, null, 2));
+      if (Object.values(result).some(item => item.enabled && !item.ready)) process.exitCode = 2;
+    } finally { await runtime.close(); }
     return;
   }
   if (!['audit', 'team'].includes(command) || !options.repo) throw new Error('Usage: node src/cli.mjs plan|doctor|audit|team --repo /path/to/project');

@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { appendFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
+import { liveTools } from './live-runtime.mjs';
 
 export const teamTools = [
   { name: 'send_message', description: 'Immediately send a question, delegated task or finding to a teammate. Stable key makes retries idempotent. If waiting for an answer, finish your turn with decision=waiting instead of repeatedly polling.', inputSchema: {
@@ -19,18 +20,21 @@ export const teamTools = [
   { name: 'ack_message', description: 'Acknowledge a received finding or answer after incorporating it. Questions/tasks must be answered with reply_message instead.', inputSchema: {
     type: 'object', additionalProperties: false, required: ['messageId'], properties: { messageId: { type: 'string' } }
   } },
-  { name: 'get_team_status', description: 'Read the shared task board, teammate identities, states and turn/message budgets. Reported completion is source-review completion, not a live test pass.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } }
+  { name: 'get_team_status', description: 'Read the shared task board, teammate identities, states and turn/message budgets.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
+  ...liveTools
 ];
+const liveToolNames = new Set(liveTools.map(tool => tool.name));
 
 const asks = message => message.kind === 'question' || message.kind === 'task';
 const text = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
 export class MessageBus {
-  constructor(tasks, { maxMessages = 100, eventPath, onEvent = () => {} } = {}) {
+  constructor(tasks, { maxMessages = 100, eventPath, onEvent = () => {}, toolHandler = null } = {}) {
     this.tasks = new Map(tasks.map(t => [t.id, t]));
     this.messages = []; this.dedup = new Map(); this.maxMessages = maxMessages;
     this.eventPath = eventPath; this.onEvent = onEvent; this.closed = false;
     this.tokens = new Map(); this.board = () => ({}); this.counter = 0;
     this.events = new EventEmitter(); this.mailboxReads = new Map();
+    this.toolHandler = toolHandler;
   }
   log(type, payload) {
     const event = { sequence: ++this.counter, timestamp: new Date().toISOString(), type, ...payload };
@@ -81,6 +85,10 @@ export class MessageBus {
         instruction: 'Messages remain pending until acknowledged or answered. If waiting on a teammate, yield your turn.' };
     }
     if (name === 'get_team_status') return { ...this.board(), messagesUsed: this.messages.length, maxMessages: this.maxMessages };
+    if (liveToolNames.has(name)) {
+      if (!this.toolHandler) throw new Error('LIVE_QA_DISABLED');
+      return this.toolHandler(agentId, name, args);
+    }
     const message = this.messages.find(m => m.id === args.messageId);
     if (!message || message.to !== agentId) throw new Error('MESSAGE_NOT_IN_YOUR_MAILBOX');
     if (name === 'reply_message') {
@@ -109,7 +117,7 @@ export class MessageBus {
           if (body.length > 20000) { res.writeHead(413); res.end('{"error":"REQUEST_TOO_LARGE"}'); return; }
         }
         const request = JSON.parse(body);
-        const result = this.call(agentId, request.name, request.arguments);
+        const result = await this.call(agentId, request.name, request.arguments);
         res.end(JSON.stringify({ result }));
       } catch (error) { res.writeHead(400); res.end(JSON.stringify({ error: error instanceof SyntaxError ? 'INVALID_JSON' : error.message })); }
     });

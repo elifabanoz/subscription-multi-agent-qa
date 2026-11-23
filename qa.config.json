@@ -17,6 +17,21 @@
       "command": "claude"
     }
   },
+  "live": {
+    "browser": {
+      "enabled": false,
+      "baseUrl": "http://127.0.0.1:3000",
+      "allowedOrigins": ["http://127.0.0.1:3000"],
+      "headless": true,
+      "timeoutMs": 30000
+    },
+    "android": {
+      "enabled": false,
+      "adbCommand": "adb",
+      "serial": "emulator-5554",
+      "package": "com.example.app"
+    }
+  },
   "tasks": [
     {
       "id": "inventory",
@@ -28,19 +43,19 @@
       "id": "identity-access",
       "provider": "claude",
       "dependsOn": ["inventory"],
-      "focus": "Review authentication, authorization, session handling, role transitions, tenant isolation and account recovery. Trace concrete request paths and distinguish source observations from tests that were not executed."
+      "focus": "Review authentication, authorization, session handling, role transitions, tenant isolation and account recovery. When live tools are enabled, exercise safe synthetic login and access-denial scenarios and bind every result to live evidence."
     },
     {
       "id": "backend-api",
       "provider": "codex",
       "dependsOn": ["inventory"],
-      "focus": "Review backend and API behavior, validation, ownership checks, error handling, concurrency boundaries and external integrations. Identify concrete runtime scenarios needed to verify suspected issues."
+      "focus": "Review backend and API behavior, validation, ownership checks, error handling, concurrency boundaries and external integrations. Use browser-visible behavior when live tools are enabled; identify additional API scenarios that still need a dedicated API client."
     },
     {
       "id": "frontend-client",
       "provider": "claude",
       "dependsOn": ["inventory"],
-      "focus": "Review web and mobile clients, navigation guards, state handling, empty and error states, accessibility-sensitive paths and client/server contract mismatches. Do not claim a live UI test ran."
+      "focus": "Review web and mobile clients, navigation guards, state handling, empty and error states, accessibility-sensitive paths and client/server contract mismatches. When enabled, run real Chromium and Android emulator/device scenarios and cite their live evidence references."
     },
     {
       "id": "data-privacy",
@@ -52,7 +67,7 @@
       "id": "cross-review",
       "provider": "claude",
       "dependsOn": ["identity-access", "backend-api", "frontend-client", "data-privacy"],
-      "focus": "Cross-check every handoff against source, reconcile contradictions, rank suspected issues by evidence and impact, and produce a concrete isolated test plan. Keep source observations, suspected issues and unexecuted tests clearly separated."
+      "focus": "Cross-check every handoff against source and live evidence, reconcile contradictions, rank issues by evidence and impact, and produce a concrete isolated regression plan. Keep live results, source observations, suspected issues and unexecuted tests clearly separated."
     }
   ]
 }

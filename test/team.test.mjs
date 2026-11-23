@@ -111,7 +111,7 @@ test('two real MCP bridge processes exchange messages while both remain running'
   for (const client of [a, b]) {
     const init = await client.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
     assert.equal(init.result.protocolVersion, '2025-06-18');
-    assert.equal((await client.request('tools/list')).result.tools.length, 5);
+    assert.equal((await client.request('tools/list')).result.tools.length, teamTools.length);
   }
   const question = await a.call('send_message', { to: 'parent', kind: 'task', scenarioId: 'scenario-42', body: 'Inspect recipient check.', key: 'delegate-42' });
   const inbox = await b.call('receive_messages');

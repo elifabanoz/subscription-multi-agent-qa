@@ -56,8 +56,9 @@ test('dashboard is loopback-only, token-scoped and writes a safe static archive'
   const html = await fetch(url);
   assert.equal(html.status, 200);
   assert.equal(html.headers.get('x-frame-options'), 'DENY');
-  assert.match(await html.text(), /Team conversation/);
-  assert.match(await html.text(), /repl.*reserved/);
+  const htmlText = await html.text();
+  assert.match(htmlText, /Team conversation/);
+  assert.match(htmlText, /repl.*reserved/);
 
   const state = await fetch(new URL('state', url));
   assert.equal(state.status, 200);

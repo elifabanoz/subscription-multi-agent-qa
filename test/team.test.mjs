@@ -39,6 +39,7 @@ test('dashboard activity keeps explicit team actions and drops unsupported event
 test('mailboxes correlate replies, enforce recipients and deduplicate retries', () => {
   const bus = new MessageBus(tasks);
   const first = ask(bus);
+  assert.match(first.createdAt, /^20[0-9]{2}-[0-9]{2}-[0-9]{2}T/);
   assert.equal(ask(bus).id, first.id);
   assert.equal(bus.messages.length, 1);
   assert.throws(() => bus.call('student', 'reply_message', { messageId: first.id, body: 'no', key: 'no' }), /YOUR_MAILBOX/);

@@ -100,7 +100,7 @@ npm run team -- --repo /absolute/path/to/your-project --config qa.local.json
 
 `team` prints a random, token-scoped `127.0.0.1` dashboard URL. Open it while the run is active to watch each
 agent's assignment and state, turn start/finish events, inbox checks, explicit agent-to-agent messages and
-browser/Android evidence. It does not expose hidden model reasoning.
+browser/Android evidence in an English, chat-style workspace. It does not expose hidden model reasoning.
 At completion, a standalone `dashboard.html` snapshot is written beside `report.json` for local review.
 
 To verify the configured disposable Android device before a full agent run:

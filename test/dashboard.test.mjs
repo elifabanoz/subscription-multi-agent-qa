@@ -34,7 +34,7 @@ test('dashboard is loopback-only, token-scoped and writes a safe static archive'
   const html = await fetch(url);
   assert.equal(html.status, 200);
   assert.equal(html.headers.get('x-frame-options'), 'DENY');
-  assert.match(await html.text(), /Canlı Agent Paneli/);
+  assert.match(await html.text(), /Team conversation/);
 
   const state = await fetch(new URL('state', url));
   assert.equal(state.status, 200);
@@ -50,6 +50,6 @@ test('dashboard is loopback-only, token-scoped and writes a safe static archive'
   const output = join(directory, 'dashboard.html');
   await dashboard.writeStatic(output);
   const archived = await readFile(output, 'utf8');
-  assert.match(archived, /Tamamlanmış koşu/);
+  assert.match(archived, /Completed run/);
   assert.doesNotMatch(archived, /<script>alert\(1\)<\/script>/);
 });

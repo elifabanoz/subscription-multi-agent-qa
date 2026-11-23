@@ -17,8 +17,8 @@ const sample = {
     'backend-api': { provider: 'codex', state: 'waiting', turns: 2, result: { summary: 'Waiting for the client contract answer.', checks: [{ name: 'Ownership' }] } }
   },
   messages: [
-    { id: 'm1', from: 'backend-api', to: 'frontend-client', kind: 'question', scenarioId: 'session-expiry', body: 'Which client state is shown after a 401 response?', acknowledged: true, replyId: 'm2' },
-    { id: 'm2', from: 'frontend-client', to: 'backend-api', kind: 'answer', scenarioId: 'session-expiry', body: 'The login screen is shown and the protected stack is cleared.', acknowledged: false }
+    { id: 'm1', from: 'backend-api', to: 'frontend-client', kind: 'question', scenarioId: 'session-expiry', body: 'Which client state is shown after a 401 response?', createdAt: new Date(Date.now() - 9000).toISOString(), acknowledged: true, replyId: 'm2' },
+    { id: 'm2', from: 'frontend-client', to: 'backend-api', kind: 'answer', scenarioId: 'session-expiry', body: 'The login screen is shown and the protected stack is cleared.', createdAt: new Date(Date.now() - 6000).toISOString(), acknowledged: false }
   ],
   activity: [
     { sequence: 1, timestamp: new Date(Date.now() - 12000).toISOString(), type: 'turn.started', agentId: 'frontend-client', provider: 'claude', turn: 2 },
@@ -42,7 +42,7 @@ try {
   await page.goto(url, { waitUntil: 'networkidle' });
   await page.screenshot({ path: screenshot, fullPage: true });
   console.log(JSON.stringify({ url, title: await page.title(), agents: await page.locator('.agent').count(),
-    messages: await page.locator('.message').count(), activity: await page.locator('.event').count(), screenshot }, null, 2));
+    messages: await page.locator('.chat-message').count(), activity: await page.locator('.event').count(), screenshot }, null, 2));
 } finally {
   await browser.close();
   await dashboard.close();

@@ -132,6 +132,8 @@ switches accounts, falls back to API billing or retries indefinitely.
 - Browser sessions are isolated per agent and direct navigation is origin-allowlisted.
 - Android text input rejects shell metacharacters; ADB is invoked without a shell.
 - The mailbox binds to `127.0.0.1` and uses per-agent temporary capability tokens.
+- Mailbox fields are length-bounded and idempotent; fair per-agent quotas prevent one worker from consuming the team budget,
+  while every accepted question or delegated task reserves capacity for its required reply.
 - The dashboard binds to `127.0.0.1`, uses an unpersisted random URL token and loads no external assets.
 - Target files and other agent messages are treated as untrusted evidence, not instructions.
 - Raw CLI output, credentials and secret values are not written to reports. Screenshots are stored under

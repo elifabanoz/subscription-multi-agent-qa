@@ -55,13 +55,51 @@ test('mailboxes correlate replies, enforce recipients and deduplicate retries', 
   assert.equal(bus.pending('student').length, 0);
 });
 
-test('message budgets preserve existing messages and retries without creating more', () => {
-  const bus = new MessageBus(tasks, { maxMessages: 1 });
+test('message schemas and runtime reject malformed or oversized fields consistently', () => {
+  const sendSchema = teamTools.find(tool => tool.name === 'send_message').inputSchema.properties;
+  assert.equal(sendSchema.body.maxLength, 6000);
+  assert.equal(sendSchema.key.maxLength, 100);
+  assert.equal(sendSchema.scenarioId.maxLength, 100);
+  assert.equal(sendSchema.scenarioId.pattern, '^[a-zA-Z0-9_.:-]{1,100}$');
+  for (const [scenarioId, key] of [[undefined, 'missing'], [null, 'null'], [123, 'number'], [['scope'], 'array']]) {
+    const bus = new MessageBus(tasks);
+    assert.throws(() => bus.call('student', 'send_message', {
+      to: 'parent', kind: 'finding', scenarioId, body: 'Fixture', key
+    }), /INVALID_SCENARIO_ID/);
+  }
+  const bus = new MessageBus(tasks);
+  assert.throws(() => bus.call('student', 'send_message', {
+    to: 'parent', kind: 'finding', scenarioId: 'scope', body: 'x'.repeat(6001), key: 'oversized-body'
+  }), /INVALID_BODY/);
+});
+
+test('message budgets reserve accepted replies and classify duplicate answers before exhaustion', () => {
+  const bus = new MessageBus(tasks, { maxMessages: 2, maxMessagesPerAgent: 2 });
   const first = ask(bus);
   assert.equal(ask(bus).id, first.id);
   assert.throws(() => ask(bus, 'student', 'parent', 'another'), /BUDGET/);
-  assert.equal(bus.messages.length, 1);
-  assert.equal(bus.outstanding('student').length, 1);
+  const answer = bus.call('parent', 'reply_message', { messageId: first.id, body: 'Checked.', key: 'answer-1' });
+  assert.equal(bus.messages.length, 2);
+  assert.equal(bus.outstanding('student').length, 0);
+  assert.equal(bus.call('student', 'get_team_status').messageBudgetUsed, 2);
+  assert.throws(() => bus.call('parent', 'reply_message', {
+    messageId: first.id, body: 'Different retry.', key: 'answer-2'
+  }), /ALREADY_ANSWERED/);
+  assert.equal(bus.call('parent', 'reply_message', {
+    messageId: first.id, body: 'Checked.', key: 'answer-1'
+  }).id, answer.id);
+});
+
+test('per-agent quotas prevent one sender from consuming every ordinary message slot', () => {
+  const bus = new MessageBus(tasks, { maxMessages: 8, maxMessagesPerAgent: 2 });
+  const finding = (from, to, key) => bus.call(from, 'send_message', {
+    to, kind: 'finding', scenarioId: 'fairness', body: 'Fixture', key
+  });
+  finding('student', 'parent', 'student-1');
+  finding('student', 'parent', 'student-2');
+  assert.throws(() => finding('student', 'parent', 'student-3'), /AGENT_MESSAGE_BUDGET_EXHAUSTED/);
+  assert.equal(finding('parent', 'student', 'parent-1').from, 'parent');
+  assert.equal(bus.messages.length, 3);
 });
 
 test('broker refuses unauthorized/browser calls and binds identity to capability token', async t => {

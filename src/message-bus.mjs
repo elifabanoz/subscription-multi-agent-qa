@@ -4,17 +4,25 @@ import { appendFileSync } from 'node:fs';
 import { EventEmitter } from 'node:events';
 import { liveTools } from './live-runtime.mjs';
 
+const BODY_MAX_LENGTH = 6000;
+const KEY_MAX_LENGTH = 100;
+const SCENARIO_ID_MAX_LENGTH = 100;
+const SCENARIO_ID_PATTERN = '^[a-zA-Z0-9_.:-]{1,100}$';
+
 export const teamTools = [
   { name: 'send_message', description: 'Immediately send a question, delegated task or finding to a teammate. Stable key makes retries idempotent. If waiting for an answer, finish your turn with decision=waiting instead of repeatedly polling.', inputSchema: {
     type: 'object', additionalProperties: false, required: ['to', 'kind', 'scenarioId', 'body', 'key'], properties: {
-      to: { type: 'string' }, kind: { type: 'string', enum: ['question', 'task', 'finding'] },
-      scenarioId: { type: 'string' }, body: { type: 'string' }, key: { type: 'string' }
+      to: { type: 'string', minLength: 1 }, kind: { type: 'string', enum: ['question', 'task', 'finding'] },
+      scenarioId: { type: 'string', minLength: 1, maxLength: SCENARIO_ID_MAX_LENGTH, pattern: SCENARIO_ID_PATTERN },
+      body: { type: 'string', minLength: 1, maxLength: BODY_MAX_LENGTH },
+      key: { type: 'string', minLength: 1, maxLength: KEY_MAX_LENGTH }
     }
   } },
   { name: 'receive_messages', description: 'Read your unacknowledged messages during work, not only at task completion. Call at start, relevant checkpoints and before final output. Empty means continue your work; do not busy-poll.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   { name: 'reply_message', description: 'Answer a received question/task. Automatically acknowledges the original and routes a correlated answer to its sender. Include evidence or explain a blocker.', inputSchema: {
     type: 'object', additionalProperties: false, required: ['messageId', 'body', 'key'], properties: {
-      messageId: { type: 'string' }, body: { type: 'string' }, key: { type: 'string' }
+      messageId: { type: 'string', minLength: 1 }, body: { type: 'string', minLength: 1, maxLength: BODY_MAX_LENGTH },
+      key: { type: 'string', minLength: 1, maxLength: KEY_MAX_LENGTH }
     }
   } },
   { name: 'ack_message', description: 'Acknowledge a received finding or answer after incorporating it. Questions/tasks must be answered with reply_message instead.', inputSchema: {
@@ -28,9 +36,14 @@ const liveToolNames = new Set(liveTools.map(tool => tool.name));
 const asks = message => message.kind === 'question' || message.kind === 'task';
 const text = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
 export class MessageBus {
-  constructor(tasks, { maxMessages = 100, eventPath, onEvent = () => {}, toolHandler = null } = {}) {
+  constructor(tasks, { maxMessages = 100, maxMessagesPerAgent, eventPath, onEvent = () => {}, toolHandler = null } = {}) {
     this.tasks = new Map(tasks.map(t => [t.id, t]));
+    if (!Number.isInteger(maxMessages) || maxMessages < 1) throw new Error('INVALID_MESSAGE_BUDGET');
+    const fairShare = Math.max(1, Math.floor(maxMessages / Math.max(1, this.tasks.size)));
+    this.maxMessagesPerAgent = maxMessagesPerAgent ?? fairShare;
+    if (!Number.isInteger(this.maxMessagesPerAgent) || this.maxMessagesPerAgent < 1) throw new Error('INVALID_AGENT_MESSAGE_BUDGET');
     this.messages = []; this.dedup = new Map(); this.maxMessages = maxMessages;
+    this.sentByAgent = new Map();
     this.eventPath = eventPath; this.onEvent = onEvent; this.closed = false;
     this.tokens = new Map(); this.board = () => ({}); this.counter = 0;
     this.events = new EventEmitter(); this.mailboxReads = new Map();
@@ -49,11 +62,15 @@ export class MessageBus {
   revokeToken(token) { this.tokens.delete(token); }
   pending(agentId) { return this.messages.filter(m => m.to === agentId && !m.acknowledged); }
   outstanding(agentId) { return this.messages.filter(m => m.from === agentId && asks(m) && !m.replyId); }
+  reservedReplies() { return this.messages.filter(m => asks(m) && !m.replyId).length; }
+  budgetUsed() { return this.messages.length + this.reservedReplies(); }
   send(agentId, args, replyTo = null) {
     if (this.closed) throw new Error('RUN_CLOSED');
     if (!this.tasks.has(agentId) || !this.tasks.has(args.to)) throw new Error('UNKNOWN_AGENT');
     if (agentId === args.to) throw new Error('SELF_MESSAGE_NOT_ALLOWED');
-    if (!text(args.body, 6000) || !text(args.key, 100) || !/^[a-zA-Z0-9_.:-]{1,100}$/.test(args.scenarioId)) throw new Error('INVALID_MESSAGE');
+    if (!text(args.body, BODY_MAX_LENGTH)) throw new Error('INVALID_BODY');
+    if (!text(args.key, KEY_MAX_LENGTH)) throw new Error('INVALID_IDEMPOTENCY_KEY');
+    if (typeof args.scenarioId !== 'string' || !new RegExp(SCENARIO_ID_PATTERN).test(args.scenarioId)) throw new Error('INVALID_SCENARIO_ID');
     if (!(replyTo ? args.kind === 'answer' : ['question', 'task', 'finding'].includes(args.kind))) throw new Error('INVALID_KIND');
     const dedupKey = agentId + ':' + args.key;
     const signature = JSON.stringify([args.to, args.kind, args.scenarioId, args.body, replyTo?.id ?? null]);
@@ -62,13 +79,18 @@ export class MessageBus {
       if (existing.signature !== signature) throw new Error('IDEMPOTENCY_KEY_CONFLICT');
       return { ...existing.message, duplicate: true };
     }
-    if (this.messages.length >= this.maxMessages) throw new Error('MESSAGE_BUDGET_EXHAUSTED');
     if (replyTo?.replyId) throw new Error('ALREADY_ANSWERED');
+    if (!replyTo && (this.sentByAgent.get(agentId) ?? 0) >= this.maxMessagesPerAgent) {
+      throw new Error('AGENT_MESSAGE_BUDGET_EXHAUSTED');
+    }
+    const projectedBudget = this.budgetUsed() + (replyTo ? 0 : 1 + (asks(args) ? 1 : 0));
+    if (projectedBudget > this.maxMessages) throw new Error('MESSAGE_BUDGET_EXHAUSTED');
     const message = { id: randomUUID(), from: agentId, to: args.to, kind: args.kind,
       scenarioId: args.scenarioId, body: args.body, inReplyTo: replyTo?.id ?? null,
       createdAt: new Date().toISOString(), acknowledged: false, replyId: null };
     this.log('message.sent', { message: { ...message } });
     this.messages.push(message); this.dedup.set(dedupKey, { signature, message });
+    if (!replyTo) this.sentByAgent.set(agentId, (this.sentByAgent.get(agentId) ?? 0) + 1);
     if (replyTo) { replyTo.replyId = message.id; replyTo.acknowledged = true; }
     return { ...message };
   }
@@ -84,7 +106,9 @@ export class MessageBus {
       return { messages, outstandingRequests: this.outstanding(agentId).map(m => ({ id: m.id, to: m.to, scenarioId: m.scenarioId })),
         instruction: 'Messages remain pending until acknowledged or answered. If waiting on a teammate, yield your turn.' };
     }
-    if (name === 'get_team_status') return { ...this.board(), messagesUsed: this.messages.length, maxMessages: this.maxMessages };
+    if (name === 'get_team_status') return { ...this.board(), messagesUsed: this.messages.length,
+      repliesReserved: this.reservedReplies(), messageBudgetUsed: this.budgetUsed(),
+      maxMessages: this.maxMessages, maxMessagesPerAgent: this.maxMessagesPerAgent };
     if (liveToolNames.has(name)) {
       if (!this.toolHandler) throw new Error('LIVE_QA_DISABLED');
       return this.toolHandler(agentId, name, args);

@@ -58,11 +58,12 @@ test('dashboard is loopback-only, token-scoped and writes a safe static archive'
   assert.equal(html.headers.get('x-frame-options'), 'DENY');
   const htmlText = await html.text();
   assert.match(htmlText, /Team conversation/);
-  assert.match(htmlText, /repl.*reserved/);
 
   const state = await fetch(new URL('state', url));
   assert.equal(state.status, 200);
-  assert.equal((await state.json()).messages.length, 1);
+  const stateJson = await state.json();
+  assert.equal(stateJson.messages.length, 1);
+  assert.equal(stateJson.messageBudget.label, '1 message · 2/20 budget · 1 reply reserved · 20 sends/agent');
   const denied = await fetch(new URL('/wrong/state', url));
   assert.equal(denied.status, 404);
 

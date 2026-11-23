@@ -132,4 +132,6 @@ session. Local `npm run doctor` is the authoritative login check.
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use,
+modify and redistribute the software only for purposes permitted by that license.
+Commercial use requires a separate license from the copyright holder.

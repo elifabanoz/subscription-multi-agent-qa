@@ -11,7 +11,7 @@
     "type": "git",
     "url": "git+https://github.com/elifabanoz/subscription-multi-agent-qa.git"
   },
-  "license": "MIT",
+  "license": "PolyForm-Noncommercial-1.0.0",
   "scripts": {
     "test": "node --test test/*.test.mjs",
     "check": "npm test && npm run plan",

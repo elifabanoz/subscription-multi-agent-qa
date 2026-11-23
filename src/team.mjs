@@ -31,7 +31,7 @@ export function publicActivity(event) {
   return null;
 }
 
-export function teamArguments(provider, schemaPath, bridgePath, brokerEnv, options = {}) {
+export function teamArguments(provider, schemaPath, bridgePath, _brokerEnv, options = {}) {
   const claudeMaxTurns = options.claudeMaxTurns ?? 45;
   if (provider === 'codex') return ['exec', '--json', '--ignore-user-config', '--sandbox', 'read-only',
     '-c', 'forced_login_method="chatgpt"',
@@ -44,7 +44,7 @@ export function teamArguments(provider, schemaPath, bridgePath, brokerEnv, optio
     '--output-schema', schemaPath, '-'];
   return ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(teamSchema),
     '--tools', 'Read,Glob,Grep', '--allowedTools', ['Read', 'Glob', 'Grep', ...teamTools.map(t => `mcp__qa__${t.name}`)].join(','),
-    '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { qa: { command: process.execPath, args: [bridgePath], env: brokerEnv } } }),
+    '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { qa: { command: process.execPath, args: [bridgePath] } } }),
     '--max-turns', String(claudeMaxTurns)];
 }
 
@@ -92,6 +92,20 @@ export async function scheduleTeam(config, bus, execute, { onChange = async () =
   const deadline = new AbortController();
   const timer = setTimeout(() => deadline.abort(), limits.maxDurationMs);
   const combined = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal;
+  const block = (state, reason, blockedBy = null) => {
+    // A completed primary assignment remains valid even when a later courtesy/follow-up
+    // message cannot be processed. Preserve dependency truth and report the follow-up gap.
+    if (state.initialComplete) {
+      state.state = 'completed';
+      if (!state.followUpState) {
+        state.followUpState = 'blocked'; state.followUpReason = reason;
+        if (blockedBy) state.followUpBlockedBy = blockedBy;
+      }
+      return;
+    }
+    state.state = 'blocked'; state.reason = reason;
+    if (blockedBy) state.blockedBy = blockedBy;
+  };
   try {
     for (;;) {
       let notify;
@@ -113,13 +127,13 @@ export async function scheduleTeam(config, bus, execute, { onChange = async () =
           const unfinished = !state.initialComplete || inbox.length > 0 || bus.outstanding(task.id).length > 0;
           if (!unfinished) continue;
           if (stopReason || stopped.has(task.provider) || (!inbox.length && depsFailed)) {
-            state.state = 'blocked'; state.reason = stopReason ?? (stopped.has(task.provider) ? 'PROVIDER_UNAVAILABLE' : 'DEPENDENCY_UNAVAILABLE');
-            if (stopped.has(task.provider)) state.blockedBy = stopped.get(task.provider);
+            block(state, stopReason ?? (stopped.has(task.provider) ? 'PROVIDER_UNAVAILABLE' : 'DEPENDENCY_UNAVAILABLE'),
+              stopped.get(task.provider) ?? null);
             continue;
           }
           if (!runnable) continue;
           if (totalTurns >= limits.maxTurns || state.turns >= limits.maxTurnsPerAgent) {
-            state.state = 'blocked'; state.reason = 'TURN_BUDGET_EXHAUSTED'; continue;
+            block(state, 'TURN_BUDGET_EXHAUSTED'); continue;
           }
           if (active.size >= config.maxParallel || busy.has(task.provider)) continue;
           state.state = 'running'; state.turns++; totalTurns++; busy.add(task.provider);
@@ -185,7 +199,7 @@ export async function scheduleTeam(config, bus, execute, { onChange = async () =
           (s.state === 'completed' && (bus.pending(id).length || bus.outstanding(id).length)));
         if (!unfinished.length) break;
         // No active worker can produce an answer. Preserve questions and report the blocked cycle.
-        for (const [, s] of unfinished) { s.state = 'blocked'; s.reason = stopReason ?? 'UNRESOLVED_CONVERSATION_OR_DEPENDENCY'; }
+        for (const [, s] of unfinished) block(s, stopReason ?? 'UNRESOLVED_CONVERSATION_OR_DEPENDENCY');
         break;
       } finally { bus.events.off('event', listener); combined.removeEventListener('abort', aborted); }
     }
@@ -222,7 +236,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     type: 'live.tool', timestamp: operation.timestamp, agentId: operation.agentId,
     tool: operation.tool, artifact: operation.artifact ? operation.artifact.split(/[\\/]/).at(-1) : null
   }) });
-  record = { version: '0.3.3', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
+  record = { version: '0.3.4', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
     liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits,
     taskDefinitions: config.tasks.map(task => ({ id: task.id, provider: task.provider, role: task.role ?? null, focus: task.focus })),
@@ -252,7 +266,8 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
       const current = await doctor(config, runProcess, { signal: context.signal });
       if (!current[task.provider].ready) return { state: 'failed', reason: 'SUBSCRIPTION_LOGIN_NOT_CONFIRMED' };
       const token = bus.issueToken(task.id);
-  const brokerEnv = { SUBSCRIPTION_QA_BUS_URL: endpoint, SUBSCRIPTION_QA_BUS_TOKEN: token };
+      const brokerEnv = { SUBSCRIPTION_QA_BUS_URL: endpoint, SUBSCRIPTION_QA_BUS_TOKEN: token };
+      const evidenceBeforeTurn = runtime.evidenceIds(task.id);
       console.log(`[agent] ${task.id}: ${task.provider}`);
       try {
         const execution = await runProcess(config.providers[task.provider].command,
@@ -263,7 +278,8 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
         if (execution.aborted || execution.timedOut || execution.overflow || execution.code !== 0)
           return executionFailure(task.provider, execution);
         try {
-          const result = parseOutput(task.provider, execution.stdout, { liveEvidence: runtime.evidenceIds(task.id) });
+          const liveEvidence = new Set([...runtime.evidenceIds(task.id)].filter(id => !evidenceBeforeTurn.has(id)));
+          const result = parseOutput(task.provider, execution.stdout, { liveEvidence });
           if (!['done', 'waiting'].includes(result.decision)) throw new Error();
           return { state: 'completed', result };
         } catch { return executionFailure(task.provider, execution, 'INVALID_OR_FAILED_PROVIDER_RESULT'); }

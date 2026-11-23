@@ -219,6 +219,7 @@ export function parseOutput(provider, stdout, { liveEvidence = new Set() } = {})
   if (!result || typeof result.summary !== 'string' || !result.summary.trim() ||
       typeof result.handoff !== 'string' || !Array.isArray(result.checks) || !result.checks.length)
     throw new Error('Incomplete result.');
+  const claimedEvidence = new Set();
   for (const check of result.checks) {
     if (!check || typeof check.name !== 'string' || !check.name.trim() ||
         !['passed', 'failed', 'source_observation', 'suspected_issue', 'not_tested'].includes(check.status) ||
@@ -226,7 +227,9 @@ export function parseOutput(provider, stdout, { liveEvidence = new Set() } = {})
         (check.status !== 'not_tested' && check.evidence.length === 0)) throw new Error('Invalid check or missing evidence.');
     if (['passed', 'failed'].includes(check.status)) {
       const references = check.evidence.flatMap(item => [...item.matchAll(/\[live:(live-[0-9]+)\]/g)].map(match => match[1]));
-      if (!references.some(id => liveEvidence.has(id))) throw new Error('Live result is not bound to runtime evidence.');
+      if (!references.length || references.some(id => !liveEvidence.has(id)) || references.some(id => claimedEvidence.has(id)))
+        throw new Error('Live result is not bound to unique runtime evidence from this turn.');
+      for (const id of references) claimedEvidence.add(id);
     }
   }
   return result;

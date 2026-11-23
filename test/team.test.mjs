@@ -223,6 +223,30 @@ test('unanswered chatter reaches a finite turn budget and never passes', async (
   assert.ok(bus.outstanding('student').length);
 });
 
+test('follow-up budget exhaustion never demotes completed work or blocks dependents', async () => {
+  const items = [task('inventory', 'codex'), task('reviewer', 'claude'),
+    task('dependent', 'codex', ['inventory', 'reviewer'])];
+  const c = config(items, { maxTurnsPerAgent: 1, maxTurns: 4 });
+  const bus = new MessageBus(items);
+  let inventoryFinished;
+  const ready = new Promise(resolve => { inventoryFinished = resolve; });
+  const outcome = await scheduleTeam(c, bus, async agent => {
+    handleInbox(bus, agent.id);
+    if (agent.id === 'inventory') inventoryFinished();
+    if (agent.id === 'reviewer') {
+      await ready;
+      bus.call('reviewer', 'send_message', { to: 'inventory', kind: 'finding', scenarioId: 'late-follow-up',
+        body: 'No reply needed; preserve the completed dependency.', key: 'late-follow-up' });
+    }
+    return done();
+  });
+  assert.equal(outcome.states.inventory.state, 'completed');
+  assert.equal(outcome.states.inventory.followUpState, 'blocked');
+  assert.equal(outcome.states.inventory.followUpReason, 'TURN_BUDGET_EXHAUSTED');
+  assert.equal(outcome.states.dependent.state, 'completed');
+  assert.equal(bus.pending('inventory').length, 1);
+});
+
 test('an agent that never reads MCP inbox fails and stops its provider queue', async () => {
   const c = config([tasks[0], task('teacher', 'codex'), tasks[1]]);
   const bus = new MessageBus(c.tasks);
@@ -290,6 +314,9 @@ test('native arguments expose only communication tools alongside source-reading 
   assert.ok(codex.includes('read-only'));
   assert.ok(!codex.join(' ').includes(env.SUBSCRIPTION_QA_BUS_TOKEN));
   assert.ok(claude.includes('--strict-mcp-config'));
+  assert.ok(!claude.join(' ').includes(env.SUBSCRIPTION_QA_BUS_TOKEN));
+  const mcpConfig = JSON.parse(claude[claude.indexOf('--mcp-config') + 1]);
+  assert.equal(mcpConfig.mcpServers.qa.env, undefined);
   assert.equal(claude[claude.indexOf('--tools') + 1], 'Read,Glob,Grep');
   assert.equal(claude[claude.indexOf('--max-turns') + 1], '90');
   for (const tool of teamTools) assert.ok(claude.join(' ').includes('mcp__qa__' + tool.name));

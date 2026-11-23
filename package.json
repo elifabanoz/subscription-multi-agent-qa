@@ -1,6 +1,6 @@
 {
   "name": "subscription-multi-agent-qa",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Source-focused multi-agent QA runner powered by local Codex and Claude subscription sessions",
   "private": true,
   "type": "module",

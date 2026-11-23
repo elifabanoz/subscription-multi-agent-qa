@@ -18,6 +18,8 @@ export function dashboardSnapshot(record = {}) {
       state: state.state ?? 'pending',
       turns: state.turns ?? 0,
       reason: state.reason ?? null,
+      followUpState: state.followUpState ?? null,
+      followUpReason: state.followUpReason ?? null,
       summary: state.result?.summary ?? null,
       checks: Array.isArray(state.result?.checks) ? state.result.checks.length : 0
     };
@@ -43,7 +45,7 @@ export function dashboardSnapshot(record = {}) {
   const activity = (record.activity ?? []).slice(-250).map(event => ({
     sequence: event.sequence ?? null,
     timestamp: event.timestamp ?? null,
-    type: event.type,
+    type: event.type ?? 'unknown',
     agentId: event.agentId ?? null,
     provider: event.provider ?? null,
     turn: event.turn ?? null,
@@ -58,6 +60,14 @@ export function dashboardSnapshot(record = {}) {
     body: event.body ?? null,
     messageCount: event.messageCount ?? null
   }));
+  const failedTasks = tasks.filter(task => ['failed', 'blocked'].includes(task.state));
+  const followUpGaps = tasks.filter(task => task.followUpState === 'blocked');
+  const stopReason = record.stopReason ?? null;
+  const outcome = !record.finishedAt ? { status: 'running', label: 'In progress', message: 'No agent is in an active turn right now.' } :
+    stopReason ? { status: 'interrupted', label: 'Run interrupted', message: `Run stopped: ${stopReason}.` } :
+    failedTasks.length ? { status: 'issues', label: 'Completed with issues', message: `${failedTasks.length} agent${failedTasks.length === 1 ? '' : 's'} failed or were blocked.` } :
+    followUpGaps.length ? { status: 'issues', label: 'Completed with follow-up gaps', message: `${followUpGaps.length} follow-up${followUpGaps.length === 1 ? '' : 's'} could not be processed.` } :
+    { status: 'completed', label: 'Completed successfully', message: 'Run complete.' };
   return clone({
     repository: record.repository ?? null,
     commit: record.commit ?? null,
@@ -65,7 +75,8 @@ export function dashboardSnapshot(record = {}) {
     startedAt: record.startedAt ?? null,
     finishedAt: record.finishedAt ?? null,
     totalTurns: record.totalTurns ?? tasks.reduce((sum, task) => sum + task.turns, 0),
-    stopReason: record.stopReason ?? null,
+    stopReason,
+    outcome,
     tasks,
     messages,
     operations,
@@ -99,13 +110,13 @@ function empty(title,detail=''){const box=node('div','empty');box.append(node('b
 function eventCopy(item){if(item.type==='turn.started')return [item.agentId+' started a turn',(item.provider||'agent')+' · turn '+item.turn];if(item.type==='turn.finished')return [item.agentId+' finished a turn',[item.state,item.reason].filter(Boolean).join(' · ')];if(item.type==='message.sent')return [item.from+' messaged '+item.to,[item.kind,item.scenarioId].filter(Boolean).join(' · ')];if(item.type==='mailbox.read')return [item.agentId+' checked the inbox',(item.messageCount||0)+' pending message'+(item.messageCount===1?'':'s')];if(item.type==='message.acknowledged')return [item.agentId+' acknowledged a message','The message was incorporated'];if(item.type==='live.tool')return [item.agentId+' used '+item.tool,item.artifact||'Live QA evidence recorded'];return [item.agentId||'System',item.type]}
 function render(data){
   const providers=new Map(data.tasks.map(task=>[task.id,task.provider]));el('runName').textContent=[data.repository,data.commit?.slice(0,10)].filter(Boolean).join(' · ')||'Local QA run';el('mode').textContent=data.mode||'';const running=data.tasks.filter(task=>task.state==='running'),waiting=data.tasks.filter(task=>task.state==='waiting');el('agentSummary').textContent=data.tasks.length+' agents · '+running.length+' active';
-  const agents=el('agents');agents.replaceChildren();if(!data.tasks.length)agents.append(empty('No agents yet'));for(const task of data.tasks){const row=node('article','agent '+(task.state==='running'?'active':''));row.append(node('span','avatar '+(task.provider||''),initials(task.id)));const info=node('div');const top=node('div','agent-top');top.append(node('span','agent-name',task.id),node('span','agent-state '+task.state,task.state));info.append(top,node('div','agent-meta',[task.role,task.provider,task.turns+' turns'].filter(Boolean).join(' · ')));if(task.focus)info.append(node('div','agent-focus',task.focus));row.append(info);agents.append(row)}
-  const current=el('currentWork');current.replaceChildren(node('span','pulse'));const currentText=node('span');if(running.length)currentText.textContent=running.map(task=>task.id+' is working on: '+(task.focus||task.summary||'assigned review')).join(' · ');else if(waiting.length)currentText.textContent=waiting.map(task=>task.id+' is waiting for a teammate').join(' · ');else currentText.textContent=data.finishedAt?'Run complete.':'No agent is in an active turn right now.';current.append(currentText);
+  const agents=el('agents');agents.replaceChildren();if(!data.tasks.length)agents.append(empty('No agents yet'));for(const task of data.tasks){const row=node('article','agent '+(task.state==='running'?'active':''));row.append(node('span','avatar '+(task.provider||''),initials(task.id)));const info=node('div');const top=node('div','agent-top');top.append(node('span','agent-name',task.id),node('span','agent-state '+task.state,task.state));info.append(top,node('div','agent-meta',[task.role,task.provider,task.turns+' turns',task.reason,task.followUpReason&&('follow-up: '+task.followUpReason)].filter(Boolean).join(' · ')));if(task.focus)info.append(node('div','agent-focus',task.focus));row.append(info);agents.append(row)}
+  const current=el('currentWork');current.replaceChildren(node('span','pulse'));const currentText=node('span');if(running.length)currentText.textContent=running.map(task=>task.id+' is working on: '+(task.focus||task.summary||'assigned review')).join(' · ');else if(waiting.length)currentText.textContent=waiting.map(task=>task.id+' is waiting for a teammate').join(' · ');else currentText.textContent=data.outcome?.message||'Run status unavailable.';current.append(currentText);
   const chat=el('chat');chat.replaceChildren();el('conversationMeta').textContent=data.messages.length+' message'+(data.messages.length===1?'':'s');if(!data.messages.length)chat.append(empty('No team messages yet','Questions and answers between agents will appear here.'));for(const item of data.messages){const row=node('article','chat-message '+item.kind);row.append(node('span','avatar '+(providers.get(item.from)||''),initials(item.from)));const main=node('div','message-main');const head=node('div','message-head');head.append(node('b','',item.from),node('span','message-to','to '+item.to),node('time','message-time',time(item.createdAt)));main.append(head,node('div','bubble',item.body));const tags=node('div','message-tags');tags.append(node('span','tag kind',item.kind),node('span','tag',item.scenarioId));if(item.acknowledged)tags.append(node('span','tag','acknowledged'));main.append(tags);row.append(main);chat.append(row)}if(data.messages.length)chat.scrollTop=chat.scrollHeight;
   const activity=el('activity');activity.replaceChildren();el('activitySummary').textContent=data.activity.length+' events';if(!data.activity.length)activity.append(empty('Nothing to show yet'));for(const item of data.activity.slice().reverse()){const copy=eventCopy(item),row=node('article','event '+item.type.replaceAll('.','-'));row.append(node('span','event-dot'));const body=node('div');body.append(node('div','event-title',copy[0]),node('div','event-detail',copy[1]),node('div','event-time',time(item.timestamp)));row.append(body);activity.append(row)}
   const evidence=el('evidence');evidence.replaceChildren();el('evidenceSummary').textContent=data.operations.length+' recorded';if(!data.operations.length)evidence.append(empty('No live evidence yet'));for(const item of data.operations.slice().reverse()){const row=node('article','evidence-item');row.append(node('div','evidence-tool',item.tool),node('div','evidence-meta',[item.agentId,item.artifact||item.id,time(item.timestamp)].join(' · ')));evidence.append(row)}
 }
-async function refresh(){const response=await fetch(prefix+'/state',{cache:'no-store'});if(!response.ok)throw new Error('state');render(await response.json())}function decode(value){const bytes=Uint8Array.from(atob(value),character=>character.charCodeAt(0));return JSON.parse(new TextDecoder().decode(bytes))}function connected(label){el('connection').textContent=label;el('connectionDot').classList.add('live')}if(initialEncoded){render(decode(initialEncoded));connected('Completed run')}else{refresh().then(()=>connected('Live')).catch(()=>{el('connection').textContent='Disconnected'});const stream=new EventSource(prefix+'/events');stream.addEventListener('update',()=>refresh());stream.onerror=()=>{el('connection').textContent='Reconnecting';el('connectionDot').classList.remove('live')}}
+async function refresh(){const response=await fetch(prefix+'/state',{cache:'no-store'});if(!response.ok)throw new Error('state');const data=await response.json();render(data);return data}function decode(value){const bytes=Uint8Array.from(atob(value),character=>character.charCodeAt(0));return JSON.parse(new TextDecoder().decode(bytes))}function connected(label){el('connection').textContent=label;el('connectionDot').classList.add('live')}if(initialEncoded){const data=decode(initialEncoded);render(data);connected(data.outcome?.label||'Archived snapshot')}else{refresh().then(()=>connected('Live')).catch(()=>{el('connection').textContent='Disconnected'});const stream=new EventSource(prefix+'/events');stream.addEventListener('update',()=>refresh().catch(()=>{el('connection').textContent='Disconnected';el('connectionDot').classList.remove('live')}));stream.onerror=()=>{el('connection').textContent='Reconnecting';el('connectionDot').classList.remove('live')}}
 </script></body></html>`;
 }
 

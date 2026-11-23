@@ -121,7 +121,8 @@ export class LiveQaRuntime {
       const allowed = this.allowedOrigins();
       await context.route('**/*', route => {
         const requestUrl = new URL(route.request().url());
-        if (['http:', 'https:'].includes(requestUrl.protocol) && !allowed.has(requestUrl.origin)) return route.abort('blockedbyclient');
+        if (!['http:', 'https:'].includes(requestUrl.protocol) || !allowed.has(requestUrl.origin))
+          return route.abort('blockedbyclient');
         return route.continue();
       });
       this.pages.set(agentId, { context, page: await context.newPage() });
@@ -142,7 +143,7 @@ export class LiveQaRuntime {
   }
   assertPageAllowed(page) {
     const current = new URL(page.url());
-    if (['http:', 'https:'].includes(current.protocol) && !this.allowedOrigins().has(current.origin))
+    if (!['http:', 'https:'].includes(current.protocol) || !this.allowedOrigins().has(current.origin))
       throw new Error('BROWSER_REDIRECT_OR_NAVIGATION_NOT_ALLOWED');
   }
   selector(value) {
@@ -179,6 +180,7 @@ export class LiveQaRuntime {
         this.assertPageAllowed(page);
         return this.record(agentId, name, { url: page.url(), title: await page.title() });
       }
+      this.assertPageAllowed(page);
       if (name === 'browser_snapshot') {
         const text = (await page.locator('body').innerText({ timeout: 10000 })).slice(0, 20000);
         const controls = await page.locator('a,button,input,select,textarea,[role]').evaluateAll(nodes => nodes.slice(0, 100).map(node => ({

@@ -20,9 +20,26 @@ test('dashboard snapshot exposes explicit collaboration data without task histor
   assert.equal(snapshot.tasks[0].summary, 'Checking UI');
   assert.equal(snapshot.tasks[0].focus, 'Check login and navigation behavior.');
   assert.equal(snapshot.tasks[0].history, undefined);
+  assert.equal(snapshot.outcome.status, 'running');
   assert.equal(snapshot.messages[0].body, '<script>alert(1)</script>');
   assert.equal(snapshot.operations[0].artifact, 'screen.png');
   assert.equal(snapshot.activity[0].from, 'frontend');
+});
+
+test('dashboard outcome exposes failure, interruption and follow-up reasons', () => {
+  const interrupted = dashboardSnapshot({ ...record, finishedAt: '2026-01-01T01:00:00Z', stopReason: 'INTERRUPTED',
+    tasks: { frontend: { provider: 'claude', state: 'failed', turns: 2, reason: 'INTERRUPTED' } } });
+  assert.deepEqual(interrupted.outcome, { status: 'interrupted', label: 'Run interrupted', message: 'Run stopped: INTERRUPTED.' });
+  assert.equal(interrupted.tasks[0].reason, 'INTERRUPTED');
+
+  const followUp = dashboardSnapshot({ ...record, finishedAt: '2026-01-01T01:00:00Z',
+    tasks: { frontend: { provider: 'claude', state: 'completed', turns: 2, initialComplete: true,
+      followUpState: 'blocked', followUpReason: 'TURN_BUDGET_EXHAUSTED' } } });
+  assert.equal(followUp.outcome.status, 'issues');
+  assert.equal(followUp.tasks[0].followUpReason, 'TURN_BUDGET_EXHAUSTED');
+
+  const malformedActivity = dashboardSnapshot({ ...record, activity: [{}] });
+  assert.equal(malformedActivity.activity[0].type, 'unknown');
 });
 
 test('dashboard is loopback-only, token-scoped and writes a safe static archive', async t => {
@@ -50,6 +67,6 @@ test('dashboard is loopback-only, token-scoped and writes a safe static archive'
   const output = join(directory, 'dashboard.html');
   await dashboard.writeStatic(output);
   const archived = await readFile(output, 'utf8');
-  assert.match(archived, /Completed run/);
+  assert.doesNotMatch(archived, /Completed run/);
   assert.doesNotMatch(archived, /<script>alert\(1\)<\/script>/);
 });

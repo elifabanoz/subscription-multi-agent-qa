@@ -76,6 +76,20 @@ test('browser and Android tools produce agent-bound evidence', async t => {
   assert.ok(executed.some(args => args.includes('monkey')));
 });
 
+test('browser evidence denies non-http schemes and foreign origins by default', async t => {
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-scheme-guard', { browserType });
+  t.after(async () => { page.current = 'about:blank'; await runtime.close(); });
+  const allowedPage = { url: () => 'http://127.0.0.1:3000/dashboard' };
+  assert.doesNotThrow(() => runtime.assertPageAllowed(allowedPage));
+  for (const url of ['https://example.com/', 'data:text/html,fixture', 'blob:http://127.0.0.1:3000/id',
+    'file:///tmp/fixture.html', 'about:blank']) {
+    assert.throws(() => runtime.assertPageAllowed({ url: () => url }), /NAVIGATION_NOT_ALLOWED/);
+  }
+  page.current = 'data:text/html,fixture';
+  await assert.rejects(() => runtime.call('qa', 'browser_snapshot', {}), /NAVIGATION_NOT_ALLOWED/);
+  assert.equal(runtime.operations.length, 0);
+});
+
 test('Android explicit activity starts through am without a shell', async () => {
   const config = structuredClone(baseConfig);
   config.live.android.activity = 'com.example.app/.MainActivity';
@@ -111,4 +125,20 @@ test('passed and failed claims require evidence created by that agent', () => {
   ].join('\n');
   assert.deepEqual(parseOutput('codex', output, { liveEvidence: new Set(['live-2']) }), report);
   assert.throws(() => parseOutput('codex', output, { liveEvidence: new Set(['live-9']) }), /runtime evidence/i);
+
+  const mixedOwnership = structuredClone(report);
+  mixedOwnership.checks[0].evidence[0] += ' plus foreign evidence [live:live-7]';
+  const mixedOutput = [
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(mixedOwnership) } }),
+    JSON.stringify({ type: 'turn.completed' })
+  ].join('\n');
+  assert.throws(() => parseOutput('codex', mixedOutput, { liveEvidence: new Set(['live-2']) }), /unique runtime evidence/i);
+
+  const reused = structuredClone(report);
+  reused.checks.push({ name: 'Other feature', status: 'failed', evidence: ['Reused the same operation [live:live-2]'] });
+  const reusedOutput = [
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(reused) } }),
+    JSON.stringify({ type: 'turn.completed' })
+  ].join('\n');
+  assert.throws(() => parseOutput('codex', reusedOutput, { liveEvidence: new Set(['live-2']) }), /unique runtime evidence/i);
 });

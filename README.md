@@ -14,8 +14,10 @@ store or proxy OpenAI/Anthropic API keys.
 - Drives a real Chromium session through Playwright when browser live mode is enabled.
 - Drives a running Android emulator or device through restricted ADB actions when Android live mode is enabled.
 - Binds every `passed` or `failed` claim to an evidence ID produced by a real live tool call.
+- Requires each `passed` or `failed` claim to use unique evidence produced by that agent in the current turn.
 - Separates live results, source observations, suspected issues and runtime tests that were not executed.
 - Stops safely on provider, quota, timeout and subscription-state failures.
+- Keeps per-turn broker capabilities out of provider command-line arguments and reports unprocessed follow-ups separately from completed primary work.
 - Writes structured reports to `runs/<id>/report.json` and events to `events.jsonl`.
 - Shows agent states, explicit inter-agent messages and live evidence in a token-scoped local dashboard.
 

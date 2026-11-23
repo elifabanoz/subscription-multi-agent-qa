@@ -5,6 +5,7 @@ import { schema, validateConfig, doctor, runProcess, parseOutput, promptFor } fr
 import { MessageBus, teamTools } from './message-bus.mjs';
 import { executionFailure } from './diagnostics.mjs';
 import { LiveQaRuntime } from './live-runtime.mjs';
+import { RunDashboard } from './dashboard.mjs';
 
 export const teamSchema = { ...schema, required: [...schema.required, 'decision'],
   properties: { ...schema.properties, decision: { type: 'string', enum: ['done', 'waiting'] } } };
@@ -199,7 +200,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
   const schemaPath = join(out, 'result.schema.json');
   await writeFile(schemaPath, JSON.stringify(teamSchema), { mode: 0o600 });
   const runtime = new LiveQaRuntime(config, out);
-  const record = { version: '0.2.0', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
+  const record = { version: '0.3.0', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
     liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits, tasks: {}, messages: [], live: runtime.summary() };
   const bus = new MessageBus(config.tasks, { maxMessages: limits.maxMessages, eventPath: join(out, 'events.jsonl'),
@@ -208,14 +209,18 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     if (event.type === 'turn.finished' && event.reason) console.log(`[durum] ${event.agentId}: ${event.state} | ${event.reason}`);
   } });
   const endpoint = await bus.listen();
+  const dashboard = new RunDashboard(record);
+  const dashboardUrl = await dashboard.listen();
   const bridge = join(dirname(fileURLToPath(import.meta.url)), 'team-mcp.mjs');
   console.log(`Canlı mesajlar: ${join(out, 'events.jsonl')}`);
   console.log(`Rapor: ${join(out, 'report.json')}`);
+  console.log(`Canlı agent paneli: ${dashboardUrl}`);
   const persist = async states => {
     record.tasks = states; record.messages = bus.messages;
     record.live = runtime.summary(); record.liveUiTestsExecuted = record.live.operations.length > 0;
     await writeFile(join(out, 'report.json.tmp'), JSON.stringify(record, null, 2), { mode: 0o600 });
     await rename(join(out, 'report.json.tmp'), join(out, 'report.json'));
+    dashboard.update(record);
   };
   try {
     const outcome = await scheduleTeam(config, bus, async (task, context) => {
@@ -243,5 +248,10 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     record.finishedAt = new Date().toISOString();
     await persist(outcome.states);
     return record;
-  } finally { await runtime.close(); await bus.close(); }
+  } finally {
+    await dashboard.writeStatic(join(out, 'dashboard.html')).catch(() => {});
+    await dashboard.close();
+    await runtime.close();
+    await bus.close();
+  }
 }

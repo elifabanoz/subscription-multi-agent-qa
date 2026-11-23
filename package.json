@@ -1,6 +1,6 @@
 {
   "name": "subscription-multi-agent-qa",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Source-focused multi-agent QA runner powered by local Codex and Claude subscription sessions",
   "private": true,
   "type": "module",
@@ -20,6 +20,8 @@
     "plan": "node src/cli.mjs plan",
     "doctor": "node src/cli.mjs doctor",
     "live:doctor": "node src/cli.mjs live-doctor",
+    "smoke:android": "node test/fixtures/android-smoke.mjs",
+    "smoke:dashboard": "node test/fixtures/dashboard-smoke.mjs",
     "audit": "node src/cli.mjs audit",
     "team": "node src/cli.mjs team"
   },

@@ -62,6 +62,10 @@ export function validateConfig(config) {
     const android = config.live.android;
     if (typeof android.package !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+$/.test(android.package))
       throw new Error('live.android.package must be a valid package id.');
+    if (android.activity && (typeof android.activity !== 'string' ||
+      !/^[a-zA-Z][a-zA-Z0-9_]*(\.[a-zA-Z0-9_]+)+\/[a-zA-Z0-9_.$]+$/.test(android.activity) ||
+      android.activity.split('/')[0] !== android.package))
+      throw new Error('live.android.activity must be a component in the configured package.');
     if (android.serial && !/^[a-zA-Z0-9_.:-]+$/.test(android.serial)) throw new Error('Invalid Android serial.');
     if (android.adbCommand && (typeof android.adbCommand !== 'string' || !android.adbCommand.trim())) throw new Error('Invalid adb command.');
   }
@@ -77,9 +81,10 @@ export function assertSubscriptionEnvironment(env) {
   if (present.length) throw new Error(`Subscription mode: remove competing provider settings from this terminal: ${present.join(', ')}`);
 }
 
-export function runProcess(command, args, { cwd, timeoutMs = 30000, input = '', env = process.env, signal } = {}) {
+export function runProcess(command, args, { cwd, timeoutMs = 30000, input = '', env = process.env, signal, binaryStdout = false } = {}) {
   return new Promise(resolveResult => {
-    let stdout = '', stderr = '', ended = false, timedOut = false, overflow = false, aborted = Boolean(signal?.aborted);
+    let stdout = '', stdoutChunks = [], stderr = '', outputBytes = 0;
+    let ended = false, timedOut = false, overflow = false, aborted = Boolean(signal?.aborted);
     if (aborted) { resolveResult({ code: -1, stdout, stderr, timedOut, overflow, aborted }); return; }
     let killTimer;
     let child;
@@ -103,13 +108,17 @@ export function runProcess(command, args, { cwd, timeoutMs = 30000, input = '', 
       if (ended) return;
       ended = true; clearTimeout(timer); clearTimeout(killTimer);
       signal?.removeEventListener('abort', onAbort);
-      resolveResult({ code, stdout, stderr, timedOut, overflow, aborted, exitSignal });
+      resolveResult({ code, stdout: binaryStdout ? Buffer.concat(stdoutChunks) : stdout,
+        stderr, timedOut, overflow, aborted, exitSignal });
     };
     function collect(kind, chunk) {
-      if (stdout.length + stderr.length + chunk.length > 4 * 1024 * 1024) { overflow = true; stop(); return; }
-      if (kind === 'out') stdout += chunk; else stderr += chunk;
+      outputBytes += chunk.length;
+      if (outputBytes > 4 * 1024 * 1024) { overflow = true; stop(); return; }
+      if (kind === 'out' && binaryStdout) stdoutChunks.push(Buffer.from(chunk));
+      else if (kind === 'out') stdout += chunk;
+      else stderr += chunk;
     }
-    child.stdout.on('data', chunk => collect('out', chunk.toString()));
+    child.stdout.on('data', chunk => collect('out', binaryStdout ? chunk : chunk.toString()));
     child.stderr.on('data', chunk => collect('err', chunk.toString()));
     child.on('error', error => { stderr = error.code === 'ENOENT' ? 'CLI_NOT_INSTALLED' : 'CLI_START_FAILED'; finish(-1); });
     child.on('close', (code, exitSignal) => finish(code ?? -1, exitSignal));

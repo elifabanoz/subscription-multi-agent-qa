@@ -11,6 +11,10 @@ origin or attach a personal device containing real data. Browser navigation and 
 to configured origins. Android actions are restricted to a configured ADB serial; startup targets the configured
 package, but taps and back navigation can leave that app on the disposable test device.
 
+The live dashboard binds only to `127.0.0.1` and uses a random URL token that is not written to the report.
+It displays explicit team messages, which can still contain project facts. Do not expose or tunnel the dashboard,
+and review the generated local `dashboard.html` before sharing it.
+
 ## Sensitive data
 
 - Never commit API keys, CLI auth stores, `.env` files or generated audit reports.

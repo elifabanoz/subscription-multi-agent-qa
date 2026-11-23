@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { LiveQaRuntime } from '../src/live-runtime.mjs';
 import { validateConfig, parseOutput } from '../src/core.mjs';
 
@@ -42,12 +43,22 @@ test('live config restricts browser origins and Android identifiers', () => {
   assert.throws(() => validateConfig(origin), /origin/i);
   const packageConfig = structuredClone(baseConfig); packageConfig.live.android.package = 'bad package';
   assert.throws(() => validateConfig(packageConfig), /package/i);
+  const activityConfig = structuredClone(baseConfig); activityConfig.live.android.activity = 'com.other.app/.MainActivity';
+  assert.throws(() => validateConfig(activityConfig), /activity/i);
 });
 
 test('browser and Android tools produce agent-bound evidence', async t => {
-  const execute = async (_command, args) => ({ code: 0, stdout: args.includes('devices') ? 'emulator-5554\tdevice product:sdk\n' : 'ok', stderr: '' });
+  const executed = [];
+  const execute = async (_command, args) => {
+    executed.push(args);
+    return { code: 0, stdout: args.includes('devices') ? 'emulator-5554          device product:sdk\r\n' : 'ok', stderr: '' };
+  };
   const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-fixture', { browserType, execute });
   t.after(() => runtime.close());
+
+  const doctor = await runtime.doctor();
+  assert.equal(doctor.browser.ready, true);
+  assert.equal(doctor.android.ready, true);
 
   const opened = await runtime.call('qa', 'browser_open', { path: '/login' });
   assert.equal(opened.url, 'http://127.0.0.1:3000/login');
@@ -62,6 +73,30 @@ test('browser and Android tools produce agent-bound evidence', async t => {
   await runtime.call('qa', 'android_input_text', { text: 'qa user@example.com' });
   await assert.rejects(() => runtime.call('qa', 'android_input_text', { text: 'bad;command' }), /NOT_SAFE/);
   assert.ok(runtime.evidenceIds('qa').size >= 5);
+  assert.ok(executed.some(args => args.includes('monkey')));
+});
+
+test('Android explicit activity starts through am without a shell', async () => {
+  const config = structuredClone(baseConfig);
+  config.live.android.activity = 'com.example.app/.MainActivity';
+  const calls = [];
+  const execute = async (command, args) => { calls.push({ command, args }); return { code: 0, stdout: 'ok', stderr: '' }; };
+  const runtime = new LiveQaRuntime(config, '/tmp/live-activity', { browserType, execute });
+  const result = await runtime.call('qa', 'android_start_app', {});
+  assert.equal(result.activity, 'com.example.app/.MainActivity');
+  assert.deepEqual(calls[0], { command: 'adb', args: ['-s', 'emulator-5554', 'shell', 'am', 'start', '-W', '-n', 'com.example.app/.MainActivity'] });
+});
+
+test('Android screenshot is captured as binary stdout without host path translation', async () => {
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
+  const execute = async (_command, args, options) => {
+    assert.ok(args.includes('exec-out'));
+    assert.equal(options.binaryStdout, true);
+    return { code: 0, stdout: png, stderr: '' };
+  };
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-binary', { browserType, execute });
+  const result = await runtime.call('qa', 'android_screenshot', { name: 'screen' });
+  assert.deepEqual(await readFile(result.artifact), png);
 });
 
 test('passed and failed claims require evidence created by that agent', () => {

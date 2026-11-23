@@ -1,4 +1,4 @@
-import { mkdir } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium } from 'playwright';
 import { runProcess } from './core.mjs';
@@ -97,7 +97,10 @@ export class LiveQaRuntime {
       try {
         const output = await this.adb(['devices', '-l'], 20000, { useSerial: false });
         const serial = this.config.android.serial;
-        const ready = serial ? output.split(/\r?\n/).some(line => line.startsWith(`${serial}\tdevice`)) : /\tdevice\b/.test(output);
+        const ready = output.split(/\r?\n/).some(line => {
+          const [device, state] = line.trim().split(/\s+/);
+          return state === 'device' && (!serial || device === serial);
+        });
         result.android = { enabled: true, ready, reason: ready ? 'ANDROID_DEVICE_READY' : 'ANDROID_DEVICE_NOT_READY' };
       } catch { result.android = { enabled: true, ready: false, reason: 'ADB_NOT_READY' }; }
     }
@@ -152,6 +155,14 @@ export class LiveQaRuntime {
     if (result.code !== 0 || result.timedOut || result.overflow) throw new Error('ADB_COMMAND_FAILED');
     return result.stdout;
   }
+  async adbBinary(args, timeoutMs = 30000) {
+    if (!this.config.android?.enabled) throw new Error('ANDROID_LIVE_QA_DISABLED');
+    const android = this.config.android;
+    const serial = android.serial ? ['-s', android.serial] : [];
+    const result = await this.execute(android.adbCommand ?? 'adb', [...serial, ...args], { timeoutMs, binaryStdout: true });
+    if (result.code !== 0 || result.timedOut || result.overflow || !Buffer.isBuffer(result.stdout)) throw new Error('ADB_COMMAND_FAILED');
+    return result.stdout;
+  }
   async artifactPath(agentId, name) {
     const directory = join(this.out, 'live-artifacts');
     await mkdir(directory, { recursive: true, mode: 0o700 });
@@ -200,8 +211,10 @@ export class LiveQaRuntime {
     }
     if (name === 'android_start_app') {
       const packageName = this.config.android.package;
-      await this.adb(['shell', 'monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1']);
-      return this.record(agentId, name, { package: packageName });
+      const activity = this.config.android.activity;
+      if (activity) await this.adb(['shell', 'am', 'start', '-W', '-n', activity]);
+      else await this.adb(['shell', 'monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1']);
+      return this.record(agentId, name, { package: packageName, activity: activity ?? null });
     }
     if (name === 'android_dump_ui') {
       const remote = `/sdcard/subscription-qa-${process.pid}.xml`;
@@ -231,11 +244,11 @@ export class LiveQaRuntime {
       return this.record(agentId, name);
     }
     if (name === 'android_screenshot') {
-      const remote = `/sdcard/subscription-qa-${process.pid}.png`;
       const artifact = await this.artifactPath(agentId, args.name);
-      await this.adb(['shell', 'screencap', '-p', remote]);
-      await this.adb(['pull', remote, artifact], 30000);
-      await this.adb(['shell', 'rm', '-f', remote]).catch(() => {});
+      const png = await this.adbBinary(['exec-out', 'screencap', '-p']);
+      if (png.length < 8 || !png.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])))
+        throw new Error('INVALID_ANDROID_SCREENSHOT');
+      await writeFile(artifact, png, { mode: 0o600 });
       return this.record(agentId, name, { artifact });
     }
     throw new Error('UNKNOWN_LIVE_TOOL');

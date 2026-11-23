@@ -17,6 +17,7 @@ store or proxy OpenAI/Anthropic API keys.
 - Separates live results, source observations, suspected issues and runtime tests that were not executed.
 - Stops safely on provider, quota, timeout and subscription-state failures.
 - Writes structured reports to `runs/<id>/report.json` and events to `events.jsonl`.
+- Shows agent states, explicit inter-agent messages and live evidence in a token-scoped local dashboard.
 
 Live QA is opt-in and disabled in the example config. The runner does not start the target application,
 create production accounts, send email or execute the target project's scripts. Start an isolated local or
@@ -76,14 +77,16 @@ Enable only the surfaces you intend to test:
       "enabled": true,
       "adbCommand": "adb",
       "serial": "emulator-5554",
-      "package": "com.example.app"
+      "package": "com.example.app",
+      "activity": "com.example.app/.MainActivity"
     }
   }
 }
 ```
 
 Browser navigation and network requests are restricted to `allowedOrigins`. Android commands are restricted
-to the configured disposable device, and app startup uses the configured package. Use synthetic test accounts
+to the configured disposable device. The optional `activity` must belong to `package`; when omitted, the runner
+uses the package launcher intent. Use synthetic test accounts
 and non-production data; taps and back navigation can leave the app on that test device.
 
 ## Run
@@ -93,6 +96,17 @@ npm run plan -- --config qa.local.json
 npm run doctor -- --config qa.local.json
 npm run live:doctor -- --config qa.local.json
 npm run team -- --repo /absolute/path/to/your-project --config qa.local.json
+```
+
+`team` prints a random, token-scoped `127.0.0.1` dashboard URL. Open it while the run is active to watch task
+states, explicit agent-to-agent messages and browser/Android evidence. It does not expose hidden model reasoning.
+At completion, a standalone `dashboard.html` snapshot is written beside `report.json` for local review.
+
+To verify the configured disposable Android device before a full agent run:
+
+```bash
+npm run smoke:android -- qa.local.json
+npm run smoke:dashboard
 ```
 
 Use `audit` instead of `team` for the older non-interactive handoff mode:
@@ -113,6 +127,7 @@ switches accounts, falls back to API billing or retries indefinitely.
 - Browser sessions are isolated per agent and direct navigation is origin-allowlisted.
 - Android text input rejects shell metacharacters; ADB is invoked without a shell.
 - The mailbox binds to `127.0.0.1` and uses per-agent temporary capability tokens.
+- The dashboard binds to `127.0.0.1`, uses an unpersisted random URL token and loads no external assets.
 - Target files and other agent messages are treated as untrusted evidence, not instructions.
 - Raw CLI output, credentials and secret values are not written to reports. Screenshots are stored under
   the private run directory and must be reviewed before sharing.
@@ -132,6 +147,7 @@ session. Local `npm run doctor` is the authoritative login check.
 
 ## License
 
-Licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). You may use,
+This is source-available software, not an OSI open-source release. It is licensed under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). You may use,
 modify and redistribute the software only for purposes permitted by that license.
 Commercial use requires a separate license from the copyright holder.

@@ -10,7 +10,7 @@ test('package, report and MCP server versions stay aligned', async () => {
   const mcp = await readFile(new URL('src/team-mcp.mjs', root), 'utf8');
   const escaped = pkg.version.replaceAll('.', '\\.');
 
-  assert.equal(pkg.version, '0.2.0');
+  assert.equal(pkg.version, '0.3.0');
   assert.match(team, new RegExp(`version: '${escaped}'`));
   assert.match(mcp, new RegExp(`version: '${escaped}'`));
 });
@@ -27,7 +27,7 @@ test('repository hygiene excludes local reports, credentials and generated runs'
 
 test('public package is independent from its original project', async () => {
   const paths = ['package.json', 'qa.config.json', 'README.md', 'SECURITY.md',
-    'src/cli.mjs', 'src/core.mjs', 'src/team.mjs', 'src/team-mcp.mjs', 'src/live-runtime.mjs'];
+    'src/cli.mjs', 'src/core.mjs', 'src/team.mjs', 'src/team-mcp.mjs', 'src/live-runtime.mjs', 'src/dashboard.mjs'];
   const text = (await Promise.all(paths.map(path => readFile(new URL(path, root), 'utf8')))).join('\n');
   assert.doesNotMatch(text, /ivmera/i);
 });

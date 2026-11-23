@@ -141,16 +141,49 @@ export function hasSubscriptionAuth(provider, result) {
   } catch { return false; }
 }
 
+const sessionProbeSchema = {
+  type: 'object', additionalProperties: false, required: ['ok'],
+  properties: { ok: { type: 'boolean', const: true } }
+};
+
+function activeSessionArguments(provider) {
+  if (provider !== 'claude') return null;
+  return ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(sessionProbeSchema),
+    '--tools', '', '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
+    '--no-session-persistence', '--safe-mode', '--disable-slash-commands', '--strict-mcp-config',
+    '--mcp-config', '{"mcpServers":{}}'];
+}
+
+export function hasActiveSubscriptionSession(provider, result) {
+  if (result.code !== 0 || result.timedOut || result.overflow || result.aborted) return false;
+  if (provider !== 'claude') return true;
+  try {
+    const envelope = JSON.parse(result.stdout);
+    return envelope.is_error !== true && envelope.subtype === 'success' &&
+      envelope.structured_output?.ok === true;
+  } catch { return false; }
+}
+
 export async function doctor(config, execute = runProcess, options = {}) {
-  assertSubscriptionEnvironment(process.env);
+  const { activeSession = false, environment = process.env, ...processOptions } = options;
+  assertSubscriptionEnvironment(environment);
   const entries = await Promise.all(['codex', 'claude'].map(async provider => {
     const command = config.providers[provider]?.command;
     if (!command) return [provider, { ready: false, reason: 'CLI_NOT_CONFIGURED' }];
-    const version = await execute(command, ['--version'], options);
+    const version = await execute(command, ['--version'], { ...processOptions, env: environment });
     if (version.code !== 0) return [provider, { ready: false, reason: 'CLI_NOT_AVAILABLE' }];
-    const status = await execute(command, provider === 'codex' ? ['login', 'status'] : ['auth', 'status'], options);
-    return [provider, { ready: hasSubscriptionAuth(provider, status),
-      reason: hasSubscriptionAuth(provider, status) ? 'SUBSCRIPTION_LOGIN_CONFIRMED' : 'SUBSCRIPTION_LOGIN_NOT_CONFIRMED' }];
+    const status = await execute(command, provider === 'codex' ? ['login', 'status'] : ['auth', 'status'],
+      { ...processOptions, env: environment });
+    if (!hasSubscriptionAuth(provider, status))
+      return [provider, { ready: false, reason: 'SUBSCRIPTION_LOGIN_NOT_CONFIRMED' }];
+    const probeArgs = activeSession ? activeSessionArguments(provider) : null;
+    if (!probeArgs) return [provider, { ready: true, reason: 'SUBSCRIPTION_LOGIN_CONFIRMED' }];
+    const probe = await execute(command, probeArgs, { ...processOptions, env: environment,
+      timeoutMs: Math.min(processOptions.timeoutMs ?? 30000, 60000),
+      input: 'Return only a JSON object matching the supplied schema with ok=true.' });
+    const ready = hasActiveSubscriptionSession(provider, probe);
+    return [provider, { ready, reason: ready ? 'SUBSCRIPTION_SESSION_CONFIRMED' :
+      'SUBSCRIPTION_SESSION_EXPIRED_OR_UNAVAILABLE' }];
   }));
   return Object.fromEntries(entries);
 }
@@ -259,7 +292,7 @@ export async function audit(config, repo, out) {
   const directory = resolve(repo);
   const git = await runProcess('git', ['rev-parse', '--show-toplevel'], { cwd: directory });
   if (git.code !== 0 || resolve(git.stdout.trim()) !== directory) throw new Error('--repo must be the root of a local Git checkout.');
-  const auth = await doctor(config);
+  const auth = await doctor(config, runProcess, { activeSession: true });
   if (Object.values(auth).some(p => !p.ready)) throw new Error('Both subscription logins must be confirmed. Run doctor.');
   const head = await runProcess('git', ['rev-parse', 'HEAD'], { cwd: directory });
   const dirty = await runProcess('git', ['status', '--porcelain'], { cwd: directory });

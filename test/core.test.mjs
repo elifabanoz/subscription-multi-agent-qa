@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { validateConfig, assertSubscriptionEnvironment, hasSubscriptionAuth, argumentsFor,
-  parseOutput, schedule, runProcess, promptFor } from '../src/core.mjs';
+  hasActiveSubscriptionSession, doctor, parseOutput, schedule, runProcess, promptFor } from '../src/core.mjs';
 
 const config = JSON.parse(await readFile(new URL('../qa.config.json', import.meta.url), 'utf8'));
 const result = { summary: 'Kaynak incelemesi', handoff: 'UI henüz çalıştırılmadı.', checks: [
@@ -47,6 +47,34 @@ test('auth status must positively identify a subscription', () => {
     { loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max', apiKeySource: 'env' }]) {
     assert.equal(hasSubscriptionAuth('claude', { code: 0, stdout: JSON.stringify(auth) }), false);
   }
+});
+
+test('active doctor catches an expired Claude OAuth session without retaining provider text', async () => {
+  const calls = [];
+  const execute = async (command, args) => {
+    calls.push([command, args]);
+    if (args[0] === '--version') return { code: 0, stdout: 'fixture', stderr: '' };
+    if (args[0] === 'login') return { code: 0, stdout: '', stderr: 'Logged in using ChatGPT' };
+    if (args[0] === 'auth') return { code: 0, stdout: JSON.stringify({
+      loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max', apiKeySource: null
+    }), stderr: '' };
+    return { code: 1, stdout: JSON.stringify({ is_error: true, subtype: 'success',
+      result: 'Failed to authenticate: OAuth session expired and could not be refreshed' }), stderr: '' };
+  };
+  const status = await doctor(config, execute, { activeSession: true, environment: { PATH: '/bin' } });
+  assert.equal(status.codex.ready, true);
+  assert.deepEqual(status.claude, { ready: false, reason: 'SUBSCRIPTION_SESSION_EXPIRED_OR_UNAVAILABLE' });
+  assert.ok(calls.some(([, args]) => args.includes('--no-session-persistence')));
+  assert.ok(!JSON.stringify(status).includes('OAuth session'));
+});
+
+test('active Claude subscription probe accepts only a successful structured response', () => {
+  assert.equal(hasActiveSubscriptionSession('claude', { code: 0, stdout: JSON.stringify({
+    is_error: false, subtype: 'success', structured_output: { ok: true }
+  }) }), true);
+  assert.equal(hasActiveSubscriptionSession('claude', { code: 0, stdout: JSON.stringify({
+    is_error: true, subtype: 'success', structured_output: { ok: true }
+  }) }), false);
 });
 
 test('provider args retain permission checks and subscription-capable modes', () => {

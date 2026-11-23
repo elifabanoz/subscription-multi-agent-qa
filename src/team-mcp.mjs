@@ -23,7 +23,7 @@ async function handle(line) {
     const supported = ['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'];
     const requested = request.params?.protocolVersion;
     reply({ id, result: { protocolVersion: supported.includes(requested) ? requested : '2025-06-18',
-      capabilities: { tools: {} }, serverInfo: { name: 'subscription-qa-team', version: '0.3.2' },
+      capabilities: { tools: {} }, serverInfo: { name: 'subscription-qa-team', version: '0.3.3' },
       instructions: 'Use these tools DURING work to communicate. Check inbox at checkpoints. Yield with decision=waiting when a reply is required; never busy-poll.' } }); return;
   }
   if (request.method === 'ping') { reply({ id, result: {} }); return; }

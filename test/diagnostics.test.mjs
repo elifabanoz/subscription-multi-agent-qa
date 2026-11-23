@@ -28,6 +28,15 @@ test('diagnostics retain no error text, source text, tokens or unrecognized prov
   assert.ok(failure.diagnostic.stderrBytes > 0);
 });
 
+test('expired Claude OAuth is classified even when the envelope subtype says success', () => {
+  const failure = executionFailure('claude', { code: 1, stderr: '', stdout: JSON.stringify({
+    is_error: true, subtype: 'success', result: 'Failed to authenticate: OAuth session expired and could not be refreshed'
+  }) });
+  assert.equal(failure.reason, 'AUTH_ERROR_REPORTED');
+  assert.equal(failure.diagnostic.classificationBasis, 'error_text_indicator');
+  assert.ok(!JSON.stringify(failure).includes('OAuth session'));
+});
+
 test('successful model prose is not interpreted as an authentication or quota error', () => {
   const failure = executionFailure('claude', { code: 1, stderr: '', stdout: JSON.stringify({
     is_error: false, subtype: 'success', structured_output: { summary: 'Source checks unauthorized and rate limit responses.' }

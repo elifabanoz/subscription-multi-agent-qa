@@ -42,7 +42,7 @@ export function executionFailure(provider, execution, fallback = 'CLI_NONZERO_EX
   else if (diagnostic.providerResultType === 'error_max_structured_output_retries') reason = 'CLAUDE_STRUCTURED_OUTPUT_RETRIES';
   else if (/rate.?limit|usage limit|quota exceeded|too many requests|\b429\b|you.?ve hit your limit/i.test(reportedErrors)) {
     reason = 'RATE_OR_USAGE_LIMIT_REPORTED'; diagnostic.classificationBasis = 'error_text_indicator';
-  } else if (/authentication failed|not logged in|invalid api key|unauthorized|token (?:has )?expired|\b401\b/i.test(reportedErrors)) {
+  } else if (/authentication failed|failed to authenticate|not logged in|invalid api key|unauthorized|oauth session expired|token (?:has )?expired|\b401\b/i.test(reportedErrors)) {
     reason = 'AUTH_ERROR_REPORTED'; diagnostic.classificationBasis = 'error_text_indicator';
   } else if (/unknown (?:option|argument)|unexpected argument|unrecognized (?:option|argument)/i.test(reportedErrors)) {
     reason = 'CLI_ARGUMENT_ERROR_REPORTED'; diagnostic.classificationBasis = 'error_text_indicator';

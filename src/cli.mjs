@@ -22,7 +22,7 @@ async function main() {
       automaticApiFallback: false, liveUiTestsExecuted: false, tasks: config.tasks }, null, 2)); return;
   }
   if (command === 'doctor') {
-    const result = await doctor(config); console.log(JSON.stringify(result, null, 2));
+    const result = await doctor(config, undefined, { activeSession: true }); console.log(JSON.stringify(result, null, 2));
     if (Object.values(result).some(p => !p.ready)) process.exitCode = 2;
     return;
   }

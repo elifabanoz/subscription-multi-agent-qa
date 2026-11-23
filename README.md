@@ -49,6 +49,8 @@ npm run setup:browser
 
 `setup:wsl` runs all local tests and verifies that both CLIs report subscription-backed login. Credentials
 remain in the official CLI stores on the user's computer; they are never copied into this repository.
+The login check makes one minimal, tool-disabled Claude request so an expired OAuth session cannot be
+mistaken for a working subscription. It consumes a negligible amount of the user's normal allowance.
 
 ## Configure
 

@@ -89,14 +89,16 @@ test('Android explicit activity starts through am without a shell', async () => 
 
 test('Android screenshot is captured as binary stdout without host path translation', async () => {
   const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
+  const observed = [];
   const execute = async (_command, args, options) => {
     assert.ok(args.includes('exec-out'));
     assert.equal(options.binaryStdout, true);
     return { code: 0, stdout: png, stderr: '' };
   };
-  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-binary', { browserType, execute });
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-binary', { browserType, execute, onOperation: item => observed.push(item) });
   const result = await runtime.call('qa', 'android_screenshot', { name: 'screen' });
   assert.deepEqual(await readFile(result.artifact), png);
+  assert.deepEqual(observed.map(item => [item.agentId, item.tool]), [['qa', 'android_screenshot']]);
 });
 
 test('passed and failed claims require evidence created by that agent', () => {

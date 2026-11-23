@@ -7,18 +7,22 @@ import { RunDashboard, dashboardSnapshot } from '../src/dashboard.mjs';
 
 const record = {
   repository: 'example/project', commit: '1234567890abcdef', mode: 'live-team-qa', totalTurns: 2,
+  taskDefinitions: [{ id: 'frontend', provider: 'claude', role: 'client', focus: 'Check login and navigation behavior.' }],
   tasks: { frontend: { provider: 'claude', state: 'running', turns: 2, result: { summary: 'Checking UI', checks: [] }, history: ['private'] } },
   messages: [{ id: 'm1', from: 'frontend', to: 'backend', kind: 'question', scenarioId: 'login',
     body: '<script>alert(1)</script>', acknowledged: false }],
+  activity: [{ sequence: 1, timestamp: '2026-01-01T00:00:00Z', type: 'message.sent', from: 'frontend', to: 'backend', kind: 'question', scenarioId: 'login', body: 'What does 401 return?' }],
   live: { operations: [{ id: 'live-1', agentId: 'frontend', tool: 'browser_screenshot', timestamp: '2026-01-01T00:00:00Z', artifact: '/private/run/screen.png' }] }
 };
 
 test('dashboard snapshot exposes explicit collaboration data without task history or artifact paths', () => {
   const snapshot = dashboardSnapshot(record);
   assert.equal(snapshot.tasks[0].summary, 'Checking UI');
+  assert.equal(snapshot.tasks[0].focus, 'Check login and navigation behavior.');
   assert.equal(snapshot.tasks[0].history, undefined);
   assert.equal(snapshot.messages[0].body, '<script>alert(1)</script>');
   assert.equal(snapshot.operations[0].artifact, 'screen.png');
+  assert.equal(snapshot.activity[0].from, 'frontend');
 });
 
 test('dashboard is loopback-only, token-scoped and writes a safe static archive', async t => {

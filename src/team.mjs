@@ -20,6 +20,17 @@ export function teamLimits(config) {
 
 export const shouldStopProvider = reason => reason !== 'CLAUDE_MAX_TURNS';
 
+export function publicActivity(event) {
+  const base = { sequence: event.sequence, timestamp: event.timestamp, type: event.type };
+  if (event.type === 'turn.started') return { ...base, agentId: event.agentId, provider: event.provider, turn: event.turn };
+  if (event.type === 'turn.finished') return { ...base, agentId: event.agentId, state: event.state, turn: event.turn, reason: event.reason ?? null };
+  if (event.type === 'mailbox.read') return { ...base, agentId: event.agentId, messageCount: event.ids?.length ?? 0 };
+  if (event.type === 'message.acknowledged') return { ...base, agentId: event.agentId, messageId: event.messageId };
+  if (event.type === 'message.sent') return { ...base, from: event.message.from, to: event.message.to,
+    kind: event.message.kind, scenarioId: event.message.scenarioId, body: event.message.body };
+  return null;
+}
+
 export function teamArguments(provider, schemaPath, bridgePath, brokerEnv, options = {}) {
   const claudeMaxTurns = options.claudeMaxTurns ?? 45;
   if (provider === 'codex') return ['exec', '--json', '--ignore-user-config', '--sandbox', 'read-only',
@@ -199,17 +210,31 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
   await mkdir(out, { recursive: true, mode: 0o700 });
   const schemaPath = join(out, 'result.schema.json');
   await writeFile(schemaPath, JSON.stringify(teamSchema), { mode: 0o600 });
-  const runtime = new LiveQaRuntime(config, out);
-  const record = { version: '0.3.0', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
+  const activity = [];
+  let record, dashboard;
+  const pushActivity = item => {
+    if (!item) return;
+    activity.push(item);
+    if (activity.length > 500) activity.shift();
+    dashboard?.update(record);
+  };
+  const runtime = new LiveQaRuntime(config, out, { onOperation: operation => pushActivity({
+    type: 'live.tool', timestamp: operation.timestamp, agentId: operation.agentId,
+    tool: operation.tool, artifact: operation.artifact ? operation.artifact.split(/[\\/]/).at(-1) : null
+  }) });
+  record = { version: '0.3.1', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
-    liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits, tasks: {}, messages: [], live: runtime.summary() };
+    liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits,
+    taskDefinitions: config.tasks.map(task => ({ id: task.id, provider: task.provider, role: task.role ?? null, focus: task.focus })),
+    tasks: {}, messages: [], activity, live: runtime.summary() };
   const bus = new MessageBus(config.tasks, { maxMessages: limits.maxMessages, eventPath: join(out, 'events.jsonl'),
     toolHandler: (agentId, name, args) => runtime.call(agentId, name, args), onEvent: event => {
+    pushActivity(publicActivity(event));
     if (event.type === 'message.sent') console.log(`[mesaj] ${event.message.from} → ${event.message.to} | ${event.message.scenarioId} | ${event.message.kind}`);
     if (event.type === 'turn.finished' && event.reason) console.log(`[durum] ${event.agentId}: ${event.state} | ${event.reason}`);
   } });
   const endpoint = await bus.listen();
-  const dashboard = new RunDashboard(record);
+  dashboard = new RunDashboard(record);
   const dashboardUrl = await dashboard.listen();
   const bridge = join(dirname(fileURLToPath(import.meta.url)), 'team-mcp.mjs');
   console.log(`Canlı mesajlar: ${join(out, 'events.jsonl')}`);

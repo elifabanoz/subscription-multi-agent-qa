@@ -62,7 +62,7 @@ const fileName = value => {
 };
 
 export class LiveQaRuntime {
-  constructor(config, out, { browserType = chromium, execute = runProcess } = {}) {
+  constructor(config, out, { browserType = chromium, execute = runProcess, onOperation = () => {} } = {}) {
     this.config = config.live ?? {};
     this.out = out;
     this.browserType = browserType;
@@ -71,6 +71,7 @@ export class LiveQaRuntime {
     this.pages = new Map();
     this.operations = [];
     this.sequence = 0;
+    this.onOperation = onOperation;
   }
   capabilities() {
     return { browser: Boolean(this.config.browser?.enabled), android: Boolean(this.config.android?.enabled) };
@@ -109,6 +110,7 @@ export class LiveQaRuntime {
   record(agentId, tool, data = {}) {
     const item = { id: `live-${++this.sequence}`, agentId, tool, timestamp: new Date().toISOString(), artifact: data.artifact ?? null };
     this.operations.push(item);
+    this.onOperation({ ...item });
     return { evidenceRef: `[live:${item.id}]`, ...data };
   }
   async page(agentId) {

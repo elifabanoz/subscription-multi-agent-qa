@@ -4,7 +4,7 @@ import { spawn } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { MessageBus, teamTools } from '../src/message-bus.mjs';
-import { scheduleTeam, teamArguments } from '../src/team.mjs';
+import { scheduleTeam, teamArguments, publicActivity } from '../src/team.mjs';
 import { runProcess } from '../src/core.mjs';
 
 const task = (id, provider, dependsOn = []) => ({ id, provider, dependsOn, focus: 'Test fixture' });
@@ -27,6 +27,14 @@ function handleInbox(bus, id) {
   }
   return messages;
 }
+
+test('dashboard activity keeps explicit team actions and drops unsupported event fields', () => {
+  const message = publicActivity({ sequence: 4, timestamp: '2026-01-01T00:00:00Z', type: 'message.sent',
+    message: { from: 'student', to: 'parent', kind: 'question', scenarioId: 'scope', body: 'Check ownership.', secret: 'drop' } });
+  assert.deepEqual(message, { sequence: 4, timestamp: '2026-01-01T00:00:00Z', type: 'message.sent',
+    from: 'student', to: 'parent', kind: 'question', scenarioId: 'scope', body: 'Check ownership.' });
+  assert.equal(publicActivity({ type: 'unknown', raw: 'drop' }), null);
+});
 
 test('mailboxes correlate replies, enforce recipients and deduplicate retries', () => {
   const bus = new MessageBus(tasks);

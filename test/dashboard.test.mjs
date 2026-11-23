@@ -7,6 +7,7 @@ import { RunDashboard, dashboardSnapshot } from '../src/dashboard.mjs';
 
 const record = {
   repository: 'example/project', commit: '1234567890abcdef', mode: 'live-team-qa', totalTurns: 2,
+  limits: { maxMessages: 20 },
   taskDefinitions: [{ id: 'frontend', provider: 'claude', role: 'client', focus: 'Check login and navigation behavior.' }],
   tasks: { frontend: { provider: 'claude', state: 'running', turns: 2, result: { summary: 'Checking UI', checks: [] }, history: ['private'] } },
   messages: [{ id: 'm1', from: 'frontend', to: 'backend', kind: 'question', scenarioId: 'login',
@@ -22,6 +23,10 @@ test('dashboard snapshot exposes explicit collaboration data without task histor
   assert.equal(snapshot.tasks[0].history, undefined);
   assert.equal(snapshot.outcome.status, 'running');
   assert.equal(snapshot.messages[0].body, '<script>alert(1)</script>');
+  assert.deepEqual(snapshot.messageBudget, {
+    messagesUsed: 1, repliesReserved: 1, effectiveUsed: 2, maxMessages: 20, maxMessagesPerAgent: 20,
+    label: '1 message · 2/20 budget · 1 reply reserved · 20 sends/agent'
+  });
   assert.equal(snapshot.operations[0].artifact, 'screen.png');
   assert.equal(snapshot.activity[0].from, 'frontend');
 });
@@ -52,6 +57,7 @@ test('dashboard is loopback-only, token-scoped and writes a safe static archive'
   assert.equal(html.status, 200);
   assert.equal(html.headers.get('x-frame-options'), 'DENY');
   assert.match(await html.text(), /Team conversation/);
+  assert.match(await html.text(), /repl.*reserved/);
 
   const state = await fetch(new URL('state', url));
   assert.equal(state.status, 200);

@@ -35,6 +35,20 @@ export function dashboardSnapshot(record = {}) {
     acknowledged: Boolean(message.acknowledged),
     replyId: message.replyId ?? null
   }));
+  const maxMessages = Number.isInteger(record.limits?.maxMessages) && record.limits.maxMessages > 0 ? record.limits.maxMessages : null;
+  const repliesReserved = messages.filter(message => ['question', 'task'].includes(message.kind) && !message.replyId).length;
+  const messageLabel = `${messages.length} message${messages.length === 1 ? '' : 's'}`;
+  const budgetLabel = maxMessages ? [messageLabel, `${messages.length + repliesReserved}/${maxMessages} budget`,
+    repliesReserved ? `${repliesReserved} repl${repliesReserved === 1 ? 'y' : 'ies'} reserved` : null,
+    tasks.length ? `${Math.max(1, Math.floor(maxMessages / tasks.length))} sends/agent` : null].filter(Boolean).join(' · ') : messageLabel;
+  const messageBudget = {
+    messagesUsed: messages.length,
+    repliesReserved,
+    effectiveUsed: messages.length + repliesReserved,
+    maxMessages,
+    maxMessagesPerAgent: maxMessages && tasks.length ? Math.max(1, Math.floor(maxMessages / tasks.length)) : null,
+    label: budgetLabel
+  };
   const operations = (record.live?.operations ?? []).map(operation => ({
     id: operation.id,
     agentId: operation.agentId,
@@ -79,6 +93,7 @@ export function dashboardSnapshot(record = {}) {
     outcome,
     tasks,
     messages,
+    messageBudget,
     operations,
     activity
   });
@@ -112,7 +127,7 @@ function render(data){
   const providers=new Map(data.tasks.map(task=>[task.id,task.provider]));el('runName').textContent=[data.repository,data.commit?.slice(0,10)].filter(Boolean).join(' · ')||'Local QA run';el('mode').textContent=data.mode||'';const running=data.tasks.filter(task=>task.state==='running'),waiting=data.tasks.filter(task=>task.state==='waiting');el('agentSummary').textContent=data.tasks.length+' agents · '+running.length+' active';
   const agents=el('agents');agents.replaceChildren();if(!data.tasks.length)agents.append(empty('No agents yet'));for(const task of data.tasks){const row=node('article','agent '+(task.state==='running'?'active':''));row.append(node('span','avatar '+(task.provider||''),initials(task.id)));const info=node('div');const top=node('div','agent-top');top.append(node('span','agent-name',task.id),node('span','agent-state '+task.state,task.state));info.append(top,node('div','agent-meta',[task.role,task.provider,task.turns+' turns',task.reason,task.followUpReason&&('follow-up: '+task.followUpReason)].filter(Boolean).join(' · ')));if(task.focus)info.append(node('div','agent-focus',task.focus));row.append(info);agents.append(row)}
   const current=el('currentWork');current.replaceChildren(node('span','pulse'));const currentText=node('span');if(running.length)currentText.textContent=running.map(task=>task.id+' is working on: '+(task.focus||task.summary||'assigned review')).join(' · ');else if(waiting.length)currentText.textContent=waiting.map(task=>task.id+' is waiting for a teammate').join(' · ');else currentText.textContent=data.outcome?.message||'Run status unavailable.';current.append(currentText);
-  const chat=el('chat');chat.replaceChildren();el('conversationMeta').textContent=data.messages.length+' message'+(data.messages.length===1?'':'s');if(!data.messages.length)chat.append(empty('No team messages yet','Questions and answers between agents will appear here.'));for(const item of data.messages){const row=node('article','chat-message '+item.kind);row.append(node('span','avatar '+(providers.get(item.from)||''),initials(item.from)));const main=node('div','message-main');const head=node('div','message-head');head.append(node('b','',item.from),node('span','message-to','to '+item.to),node('time','message-time',time(item.createdAt)));main.append(head,node('div','bubble',item.body));const tags=node('div','message-tags');tags.append(node('span','tag kind',item.kind),node('span','tag',item.scenarioId));if(item.acknowledged)tags.append(node('span','tag','acknowledged'));main.append(tags);row.append(main);chat.append(row)}if(data.messages.length)chat.scrollTop=chat.scrollHeight;
+  const chat=el('chat');chat.replaceChildren();el('conversationMeta').textContent=data.messageBudget?.label||(data.messages.length+' messages');if(!data.messages.length)chat.append(empty('No team messages yet','Questions and answers between agents will appear here.'));for(const item of data.messages){const row=node('article','chat-message '+item.kind);row.append(node('span','avatar '+(providers.get(item.from)||''),initials(item.from)));const main=node('div','message-main');const head=node('div','message-head');head.append(node('b','',item.from),node('span','message-to','to '+item.to),node('time','message-time',time(item.createdAt)));main.append(head,node('div','bubble',item.body));const tags=node('div','message-tags');tags.append(node('span','tag kind',item.kind),node('span','tag',item.scenarioId));if(item.acknowledged)tags.append(node('span','tag','acknowledged'));main.append(tags);row.append(main);chat.append(row)}if(data.messages.length)chat.scrollTop=chat.scrollHeight;
   const activity=el('activity');activity.replaceChildren();el('activitySummary').textContent=data.activity.length+' events';if(!data.activity.length)activity.append(empty('Nothing to show yet'));for(const item of data.activity.slice().reverse()){const copy=eventCopy(item),row=node('article','event '+item.type.replaceAll('.','-'));row.append(node('span','event-dot'));const body=node('div');body.append(node('div','event-title',copy[0]),node('div','event-detail',copy[1]),node('div','event-time',time(item.timestamp)));row.append(body);activity.append(row)}
   const evidence=el('evidence');evidence.replaceChildren();el('evidenceSummary').textContent=data.operations.length+' recorded';if(!data.operations.length)evidence.append(empty('No live evidence yet'));for(const item of data.operations.slice().reverse()){const row=node('article','evidence-item');row.append(node('div','evidence-tool',item.tool),node('div','evidence-meta',[item.agentId,item.artifact||item.id,time(item.timestamp)].join(' · ')));evidence.append(row)}
 }

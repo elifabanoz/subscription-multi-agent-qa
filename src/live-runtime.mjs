@@ -234,11 +234,15 @@ export class LiveQaRuntime {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     return join(directory, `${agentId}-${fileName(name)}`);
   }
-  call(agentId, name, args = {}) {
+  call(agentId, name, args = {}, { signal } = {}) {
     if (this.closed) return Promise.reject(new Error('LIVE_QA_CLOSED'));
+    if (signal?.aborted) return Promise.reject(new Error('LIVE_QA_CANCELLED'));
     const queueKey = name.startsWith('android_') ? 'android-device' : `browser:${agentId}`;
     const previous = this.operationQueues.get(queueKey) ?? Promise.resolve();
-    const operation = previous.catch(() => {}).then(() => this.performCall(agentId, name, args));
+    const operation = previous.catch(() => {}).then(() => {
+      if (signal?.aborted) throw new Error('LIVE_QA_CANCELLED');
+      return this.performCall(agentId, name, args);
+    });
     this.operationQueues.set(queueKey, operation);
     operation.finally(() => {
       if (this.operationQueues.get(queueKey) === operation) this.operationQueues.delete(queueKey);

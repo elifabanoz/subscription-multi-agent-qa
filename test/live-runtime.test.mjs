@@ -152,6 +152,40 @@ test('browser context reset closes and discards only that agent session', async 
   await runtime.close();
 });
 
+test('a cancelled queued browser operation never starts after the active operation finishes', async () => {
+  let releaseFirst;
+  let markStarted;
+  const firstStarted = new Promise(resolve => { markStarted = resolve; });
+  const firstGate = new Promise(resolve => { releaseFirst = resolve; });
+  let secondStarted = false;
+  const queuedPage = {
+    current: 'about:blank',
+    async goto(url) {
+      if (url.endsWith('/first')) { markStarted(); await firstGate; }
+      if (url.endsWith('/second')) secondStarted = true;
+      this.current = url;
+    },
+    url() { return this.current; },
+    async title() { return 'Fixture'; }
+  };
+  const queuedBrowser = { async launch() { return {
+    async newContext() { return { async route() {}, async newPage() { return queuedPage; }, async close() {} }; },
+    async close() {}
+  }; } };
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-cancelled-queue', { browserType: queuedBrowser });
+  const first = runtime.call('qa', 'browser_open', { path: '/first' });
+  await firstStarted;
+  const controller = new AbortController();
+  const second = runtime.call('qa', 'browser_open', { path: '/second' }, { signal: controller.signal });
+  controller.abort();
+  releaseFirst();
+  await first;
+  await assert.rejects(second, /LIVE_QA_CANCELLED/);
+  assert.equal(secondStarted, false);
+  assert.equal(runtime.operations.length, 1);
+  await runtime.close();
+});
+
 test('browser evidence denies non-http schemes and foreign origins by default', async t => {
   const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-scheme-guard', { browserType });
   t.after(async () => { page.current = 'about:blank'; await runtime.close(); });

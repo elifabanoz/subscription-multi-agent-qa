@@ -211,14 +211,24 @@ function mcpClient(t, endpoint, token) {
 }
 
 test('MCP bridge reports explicit request cancellation instead of broker unavailability', { timeout: 6000 }, async t => {
-  const bus = new MessageBus(tasks, { toolHandler: async () => new Promise(resolve => setTimeout(() => resolve({ done: true }), 250)) });
+  let observeAbort;
+  const abortObserved = new Promise(resolve => { observeAbort = resolve; });
+  let markHandlerStarted;
+  const handlerStarted = new Promise(resolve => { markHandlerStarted = resolve; });
+  const bus = new MessageBus(tasks, { toolHandler: async (_agentId, _name, _args, { signal }) => new Promise(resolve => {
+    markHandlerStarted();
+    if (signal.aborted) { observeAbort(); resolve({ cancelled: true }); return; }
+    signal.addEventListener('abort', () => { observeAbort(); resolve({ cancelled: true }); }, { once: true });
+  }) });
   const endpoint = await bus.listen(); t.after(() => bus.close());
   const client = mcpClient(t, endpoint, bus.issueToken('student'));
   await client.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
   const pending = client.beginRequest('tools/call', { name: 'browser_open', arguments: { path: '/slow', key: 'cancel-slow' } });
+  await handlerStarted;
   client.notify('$/cancelRequest', { id: pending.id });
   const response = await pending.response;
   assert.deepEqual(response.error, { code: -32800, message: 'Request cancelled' });
+  await Promise.race([abortObserved, new Promise((_, reject) => setTimeout(() => reject(new Error('Broker abort was not propagated')), 1000))]);
 });
 
 test('two real MCP bridge processes exchange messages while both remain running', { timeout: 6000 }, async t => {

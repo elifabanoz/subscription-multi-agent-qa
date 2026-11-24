@@ -244,14 +244,14 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     type: 'live.tool', timestamp: operation.timestamp, agentId: operation.agentId,
     tool: operation.tool, artifact: operation.artifact ? operation.artifact.split(/[\\/]/).at(-1) : null
   }) });
-  record = { version: '0.4.8', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
+  record = { version: '0.4.9', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
     liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits,
     taskDefinitions: config.tasks.map(task => ({ id: task.id, provider: task.provider, role: task.role ?? null, focus: task.focus })),
     tasks: {}, messages: [], activity, live: runtime.summary() };
   const bus = new MessageBus(config.tasks, { maxMessages: limits.maxMessages, eventPath: join(out, 'events.jsonl'),
     maxMessagesPerAgent: limits.maxMessagesPerAgent,
-    toolHandler: (agentId, name, args) => runtime.call(agentId, name, args), onEvent: event => {
+    toolHandler: (agentId, name, args, options) => runtime.call(agentId, name, args, options), onEvent: event => {
     pushActivity(publicActivity(event));
     if (event.type === 'message.sent') console.log(`[mesaj] ${event.message.from} → ${event.message.to} | ${event.message.scenarioId} | ${event.message.kind}`);
     if (event.type === 'turn.finished' && event.reason) console.log(`[durum] ${event.agentId}: ${event.state} | ${event.reason}`);

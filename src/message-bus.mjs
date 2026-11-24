@@ -95,7 +95,7 @@ export class MessageBus {
     if (replyTo) { replyTo.replyId = message.id; replyTo.acknowledged = true; }
     return { ...message };
   }
-  callLive(agentId, name, args) {
+  callLive(agentId, name, args, { signal } = {}) {
     if (!text(args.key, KEY_MAX_LENGTH) || !new RegExp(SCENARIO_ID_PATTERN).test(args.key))
       return Promise.reject(new Error('INVALID_IDEMPOTENCY_KEY'));
     const key = `${agentId}:${args.key}`;
@@ -106,11 +106,14 @@ export class MessageBus {
       if (existing.signature !== signature) return Promise.reject(new Error('IDEMPOTENCY_KEY_CONFLICT'));
       return existing.promise;
     }
-    const promise = Promise.resolve().then(() => this.toolHandler(agentId, name, operationArgs));
+    const promise = Promise.resolve().then(() => {
+      if (signal?.aborted) throw new Error('LIVE_QA_CANCELLED');
+      return this.toolHandler(agentId, name, operationArgs, { signal });
+    });
     this.liveDedup.set(key, { signature, promise });
     return promise;
   }
-  call(agentId, name, args = {}) {
+  call(agentId, name, args = {}, { signal } = {}) {
     if (!this.tasks.has(agentId)) throw new Error('UNKNOWN_AGENT');
     if (this.closed) throw new Error('RUN_CLOSED');
     if (!args || typeof args !== 'object' || Array.isArray(args)) throw new Error('INVALID_ARGUMENTS');
@@ -127,7 +130,7 @@ export class MessageBus {
       maxMessages: this.maxMessages, maxMessagesPerAgent: this.maxMessagesPerAgent };
     if (liveToolNames.has(name)) {
       if (!this.toolHandler) throw new Error('LIVE_QA_DISABLED');
-      return this.callLive(agentId, name, args);
+      return this.callLive(agentId, name, args, { signal });
     }
     const message = this.messages.find(m => m.id === args.messageId);
     if (!message || message.to !== agentId) throw new Error('MESSAGE_NOT_IN_YOUR_MAILBOX');
@@ -145,6 +148,8 @@ export class MessageBus {
   async listen() {
     this.server = createServer(async (req, res) => {
       res.setHeader('Content-Type', 'application/json');
+      const controller = new AbortController();
+      res.on('close', () => { if (!res.writableEnded) controller.abort(); });
       // Only an internal loopback bridge speaks to this endpoint. Browser origins are refused.
       const token = (req.headers.authorization ?? '').replace(/^Bearer /, '');
       const agentId = this.tokens.get(token);
@@ -158,9 +163,13 @@ export class MessageBus {
         }
         if (this.tokens.get(token) !== agentId) { res.writeHead(403); res.end('{"error":"FORBIDDEN"}'); return; }
         const request = JSON.parse(body);
-        const result = await this.call(agentId, request.name, request.arguments);
+        const result = await this.call(agentId, request.name, request.arguments, { signal: controller.signal });
+        if (res.destroyed) return;
         res.end(JSON.stringify({ result }));
-      } catch (error) { res.writeHead(400); res.end(JSON.stringify({ error: error instanceof SyntaxError ? 'INVALID_JSON' : error.message })); }
+      } catch (error) {
+        if (res.destroyed) return;
+        res.writeHead(400); res.end(JSON.stringify({ error: error instanceof SyntaxError ? 'INVALID_JSON' : error.message }));
+      }
     });
     this.server.requestTimeout = 125000;
     await new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', resolve); });

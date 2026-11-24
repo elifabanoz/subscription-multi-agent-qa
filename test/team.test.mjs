@@ -192,18 +192,34 @@ function mcpClient(t, endpoint, token) {
       const closed = new Promise(resolve => child.once('close', resolve)); child.kill(); await closed;
     }
   });
-  const request = (method, params = {}) => new Promise((resolve, reject) => {
+  const beginRequest = (method, params = {}) => {
     const id = ++sequence;
-    const timer = setTimeout(() => { pending.delete(id); reject(new Error('MCP response timeout')); }, 2000);
-    pending.set(id, { resolve, reject, timer });
+    const response = new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { pending.delete(id); reject(new Error('MCP response timeout')); }, 2000);
+      pending.set(id, { resolve, reject, timer });
+    });
     child.stdin.write(JSON.stringify({ jsonrpc: '2.0', id, method, params }) + '\n');
-  });
-  return { child, request, call: async (name, args = {}) => {
+    return { id, response };
+  };
+  const request = (method, params = {}) => beginRequest(method, params).response;
+  const notify = (method, params = {}) => child.stdin.write(JSON.stringify({ jsonrpc: '2.0', method, params }) + '\n');
+  return { child, request, beginRequest, notify, call: async (name, args = {}) => {
     const response = await request('tools/call', { name, arguments: args });
     assert.equal(response.result.isError, false);
     return JSON.parse(response.result.content[0].text);
   } };
 }
+
+test('MCP bridge reports explicit request cancellation instead of broker unavailability', { timeout: 6000 }, async t => {
+  const bus = new MessageBus(tasks, { toolHandler: async () => new Promise(resolve => setTimeout(() => resolve({ done: true }), 250)) });
+  const endpoint = await bus.listen(); t.after(() => bus.close());
+  const client = mcpClient(t, endpoint, bus.issueToken('student'));
+  await client.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
+  const pending = client.beginRequest('tools/call', { name: 'browser_open', arguments: { path: '/slow', key: 'cancel-slow' } });
+  client.notify('$/cancelRequest', { id: pending.id });
+  const response = await pending.response;
+  assert.deepEqual(response.error, { code: -32800, message: 'Request cancelled' });
+});
 
 test('two real MCP bridge processes exchange messages while both remain running', { timeout: 6000 }, async t => {
   const bus = new MessageBus(tasks);

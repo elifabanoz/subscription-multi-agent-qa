@@ -27,21 +27,24 @@ async function handle(line) {
     const supported = ['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'];
     const requested = request.params?.protocolVersion;
     reply({ id, result: { protocolVersion: supported.includes(requested) ? requested : '2025-06-18',
-      capabilities: { tools: {} }, serverInfo: { name: 'subscription-qa-team', version: '0.4.7' },
+      capabilities: { tools: {} }, serverInfo: { name: 'subscription-qa-team', version: '0.4.8' },
       instructions: 'Use these tools DURING work to communicate. Check inbox at checkpoints. Yield with decision=waiting when a reply is required; never busy-poll.' } }); return;
   }
   if (request.method === 'ping') { reply({ id, result: {} }); return; }
   if (request.method === 'tools/list') { reply({ id, result: { tools: teamTools } }); return; }
   if (request.method !== 'tools/call') { reply({ id, error: { code: -32601, message: 'Method not found' } }); return; }
+  const controller = new AbortController();
+  const timeout = AbortSignal.timeout(brokerTimeoutMs(request.params?.name));
   try {
-    const controller = new AbortController();
     inFlight.set(id, controller);
-    const timeout = AbortSignal.timeout(brokerTimeoutMs(request.params?.name));
     const response = await fetch(endpoint, { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(request.params), signal: AbortSignal.any([controller.signal, timeout]) });
     const data = await response.json();
     reply({ id, result: { content: [{ type: 'text', text: JSON.stringify(data.result ?? data) }], isError: !response.ok } });
-  } catch { reply({ id, result: { content: [{ type: 'text', text: 'QA_BROKER_UNAVAILABLE' }], isError: true } }); }
+  } catch {
+    if (controller.signal.aborted) reply({ id, error: { code: -32800, message: 'Request cancelled' } });
+    else reply({ id, result: { content: [{ type: 'text', text: timeout.aborted ? 'QA_BROKER_TIMEOUT' : 'QA_BROKER_UNAVAILABLE' }], isError: true } });
+  }
   finally { inFlight.delete(id); }
 }
 const input = createInterface({ input: process.stdin, crlfDelay: Infinity });

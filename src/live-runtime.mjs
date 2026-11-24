@@ -4,7 +4,7 @@ import { chromium } from 'playwright';
 import { runProcess } from './core.mjs';
 
 const empty = { type: 'object', properties: {}, additionalProperties: false };
-export const liveTools = [
+const rawLiveTools = [
   { name: 'browser_open', description: 'Open a configured local or staging URL in your isolated browser session.', inputSchema: {
     type: 'object', additionalProperties: false, required: ['path'], properties: { path: { type: 'string' } }
   } },
@@ -53,6 +53,13 @@ export const liveTools = [
     type: 'object', additionalProperties: false, required: ['name'], properties: { name: { type: 'string' } }
   } }
 ];
+
+const idempotencyKey = { type: 'string', minLength: 1, maxLength: 100, pattern: '^[a-zA-Z0-9_.:-]{1,100}$' };
+export const liveTools = rawLiveTools.map(tool => ({ ...tool, inputSchema: {
+  ...tool.inputSchema,
+  required: [...(tool.inputSchema.required ?? []), 'key'],
+  properties: { ...tool.inputSchema.properties, key: idempotencyKey }
+} }));
 
 const bounded = (value, max = 500) => typeof value === 'string' && value.length > 0 && value.length <= max;
 const integer = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;

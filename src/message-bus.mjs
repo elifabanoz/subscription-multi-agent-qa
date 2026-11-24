@@ -32,6 +32,7 @@ export const teamTools = [
   ...liveTools
 ];
 const liveToolNames = new Set(liveTools.map(tool => tool.name));
+export const brokerTimeoutMs = name => liveToolNames.has(name) ? 120000 : 15000;
 
 const asks = message => message.kind === 'question' || message.kind === 'task';
 const text = (value, max) => typeof value === 'string' && value.trim().length > 0 && value.length <= max;
@@ -42,7 +43,7 @@ export class MessageBus {
     const fairShare = Math.max(1, Math.floor(maxMessages / Math.max(1, this.tasks.size)));
     this.maxMessagesPerAgent = maxMessagesPerAgent ?? fairShare;
     if (!Number.isInteger(this.maxMessagesPerAgent) || this.maxMessagesPerAgent < 1) throw new Error('INVALID_AGENT_MESSAGE_BUDGET');
-    this.messages = []; this.dedup = new Map(); this.maxMessages = maxMessages;
+    this.messages = []; this.dedup = new Map(); this.liveDedup = new Map(); this.maxMessages = maxMessages;
     this.sentByAgent = new Map();
     this.eventPath = eventPath; this.onEvent = onEvent; this.closed = false;
     this.tokens = new Map(); this.board = () => ({}); this.counter = 0;
@@ -94,6 +95,21 @@ export class MessageBus {
     if (replyTo) { replyTo.replyId = message.id; replyTo.acknowledged = true; }
     return { ...message };
   }
+  callLive(agentId, name, args) {
+    if (!text(args.key, KEY_MAX_LENGTH) || !new RegExp(SCENARIO_ID_PATTERN).test(args.key))
+      return Promise.reject(new Error('INVALID_IDEMPOTENCY_KEY'));
+    const key = `${agentId}:${args.key}`;
+    const operationArgs = Object.fromEntries(Object.entries(args).filter(([field]) => field !== 'key').sort(([a], [b]) => a.localeCompare(b)));
+    const signature = JSON.stringify([name, operationArgs]);
+    const existing = this.liveDedup.get(key);
+    if (existing) {
+      if (existing.signature !== signature) return Promise.reject(new Error('IDEMPOTENCY_KEY_CONFLICT'));
+      return existing.promise;
+    }
+    const promise = Promise.resolve().then(() => this.toolHandler(agentId, name, operationArgs));
+    this.liveDedup.set(key, { signature, promise });
+    return promise;
+  }
   call(agentId, name, args = {}) {
     if (!this.tasks.has(agentId)) throw new Error('UNKNOWN_AGENT');
     if (this.closed) throw new Error('RUN_CLOSED');
@@ -111,7 +127,7 @@ export class MessageBus {
       maxMessages: this.maxMessages, maxMessagesPerAgent: this.maxMessagesPerAgent };
     if (liveToolNames.has(name)) {
       if (!this.toolHandler) throw new Error('LIVE_QA_DISABLED');
-      return this.toolHandler(agentId, name, args);
+      return this.callLive(agentId, name, args);
     }
     const message = this.messages.find(m => m.id === args.messageId);
     if (!message || message.to !== agentId) throw new Error('MESSAGE_NOT_IN_YOUR_MAILBOX');
@@ -140,12 +156,13 @@ export class MessageBus {
           body += chunk;
           if (body.length > 20000) { res.writeHead(413); res.end('{"error":"REQUEST_TOO_LARGE"}'); return; }
         }
+        if (this.tokens.get(token) !== agentId) { res.writeHead(403); res.end('{"error":"FORBIDDEN"}'); return; }
         const request = JSON.parse(body);
         const result = await this.call(agentId, request.name, request.arguments);
         res.end(JSON.stringify({ result }));
       } catch (error) { res.writeHead(400); res.end(JSON.stringify({ error: error instanceof SyntaxError ? 'INVALID_JSON' : error.message })); }
     });
-    this.server.requestTimeout = 10000;
+    this.server.requestTimeout = 125000;
     await new Promise((resolve, reject) => { this.server.once('error', reject); this.server.listen(0, '127.0.0.1', resolve); });
     return `http://127.0.0.1:${this.server.address().port}/tool`;
   }

@@ -1,9 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { request as httpRequest } from 'node:http';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { MessageBus, teamTools } from '../src/message-bus.mjs';
+import { MessageBus, teamTools, brokerTimeoutMs } from '../src/message-bus.mjs';
 import { scheduleTeam, teamArguments, publicActivity } from '../src/team.mjs';
 import { runProcess } from '../src/core.mjs';
 
@@ -71,6 +72,28 @@ test('message schemas and runtime reject malformed or oversized fields consisten
   assert.throws(() => bus.call('student', 'send_message', {
     to: 'parent', kind: 'finding', scenarioId: 'scope', body: 'x'.repeat(6001), key: 'oversized-body'
   }), /INVALID_BODY/);
+  for (const tool of teamTools.filter(item => item.name.startsWith('browser_') || item.name.startsWith('android_'))) {
+    assert.ok(tool.inputSchema.required.includes('key'), `${tool.name} must require an idempotency key`);
+  }
+  assert.equal(brokerTimeoutMs('browser_open'), 120000);
+  assert.equal(brokerTimeoutMs('receive_messages'), 15000);
+});
+
+test('live tool retries share one operation and reject key reuse for a different action', async () => {
+  let calls = 0;
+  const bus = new MessageBus(tasks, { toolHandler: async (_agentId, name, args) => {
+    calls += 1;
+    await new Promise(resolve => setTimeout(resolve, 15));
+    return { name, args, calls };
+  } });
+  const args = { path: '/login', key: 'open-login' };
+  const [first, retry] = await Promise.all([
+    bus.call('student', 'browser_open', args),
+    bus.call('student', 'browser_open', args)
+  ]);
+  assert.deepEqual(retry, first);
+  assert.equal(calls, 1);
+  await assert.rejects(() => bus.call('student', 'browser_open', { path: '/other', key: 'open-login' }), /KEY_CONFLICT/);
 });
 
 test('message budgets reserve accepted replies and classify duplicate answers before exhaustion', () => {
@@ -118,6 +141,28 @@ test('broker refuses unauthorized/browser calls and binds identity to capability
   assert.equal((await sent.json()).result.from, 'student');
   bus.revokeToken(token);
   assert.equal((await post({ Authorization: `Bearer ${token}` })).status, 403);
+});
+
+test('broker rechecks a capability token after reading a request body', async t => {
+  const bus = new MessageBus(tasks);
+  const endpoint = new URL(await bus.listen()); t.after(() => bus.close());
+  const token = bus.issueToken('student');
+  const response = new Promise((resolve, reject) => {
+    const request = httpRequest(endpoint, { method: 'POST', headers: {
+      Authorization: `Bearer ${token}`, 'Content-Type': 'application/json'
+    } }, result => {
+      let body = '';
+      result.on('data', chunk => { body += chunk; });
+      result.on('end', () => resolve({ status: result.statusCode, body }));
+    });
+    request.on('error', reject);
+    request.write('{"name":"receive_messages",');
+    setImmediate(() => {
+      bus.revokeToken(token);
+      request.end('"arguments":{}}');
+    });
+  });
+  assert.deepEqual(await response, { status: 403, body: '{"error":"FORBIDDEN"}' });
 });
 
 function mcpClient(t, endpoint, token) {

@@ -23,6 +23,15 @@ export function teamLimits(config) {
 
 export const shouldStopProvider = reason => reason !== 'CLAUDE_MAX_TURNS';
 
+export function availableTeamTools(config = {}) {
+  return teamTools.filter(tool => {
+    if (tool.name.startsWith('browser_')) return config.live?.browser?.enabled === true;
+    if (tool.name.startsWith('android_')) return config.live?.android?.enabled === true &&
+      (tool.name !== 'android_screenshot' || config.live.android.allowScreenshots === true);
+    return true;
+  });
+}
+
 export function publicActivity(event) {
   const base = { sequence: event.sequence, timestamp: event.timestamp, type: event.type };
   if (event.type === 'turn.started') return { ...base, agentId: event.agentId, provider: event.provider, turn: event.turn };
@@ -34,20 +43,24 @@ export function publicActivity(event) {
   return null;
 }
 
-export function teamArguments(provider, schemaPath, bridgePath, _brokerEnv, options = {}) {
+export function teamArguments(provider, schemaPath, bridgePath, brokerEnv, options = {}) {
   const claudeMaxTurns = options.claudeMaxTurns ?? 45;
+  const names = JSON.parse(brokerEnv?.SUBSCRIPTION_QA_TOOL_NAMES ?? 'null');
+  if (!Array.isArray(names) || names.some(name => typeof name !== 'string' || !teamTools.some(tool => tool.name === name)) ||
+    new Set(names).size !== names.length) throw new Error('Invalid enabled team tools.');
+  const enabledTools = teamTools.filter(tool => names.includes(tool.name));
   if (provider === 'codex') return ['exec', '--json', '--ignore-user-config', '--sandbox', 'read-only',
     '--ephemeral',
     '-c', 'forced_login_method="chatgpt"',
     '-c', `mcp_servers.qa.command=${JSON.stringify(process.execPath)}`,
     '-c', `mcp_servers.qa.args=${JSON.stringify([bridgePath])}`,
-    '-c', 'mcp_servers.qa.env_vars=["SUBSCRIPTION_QA_BUS_URL","SUBSCRIPTION_QA_BUS_TOKEN"]',
+    '-c', 'mcp_servers.qa.env_vars=["SUBSCRIPTION_QA_BUS_URL","SUBSCRIPTION_QA_BUS_TOKEN","SUBSCRIPTION_QA_TOOL_NAMES"]',
     '-c', 'mcp_servers.qa.required=true',
     '-c', 'mcp_servers.qa.default_tools_approval_mode="approve"',
-    '-c', `mcp_servers.qa.enabled_tools=${JSON.stringify(teamTools.map(t => t.name))}`,
+    '-c', `mcp_servers.qa.enabled_tools=${JSON.stringify(enabledTools.map(t => t.name))}`,
     '--output-schema', schemaPath, '-'];
   return ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(teamSchema),
-    '--tools', 'Read,Glob,Grep', '--allowedTools', ['Read', 'Glob', 'Grep', ...teamTools.map(t => `mcp__qa__${t.name}`)].join(','),
+    '--tools', 'Read,Glob,Grep', '--allowedTools', ['Read', 'Glob', 'Grep', ...enabledTools.map(t => `mcp__qa__${t.name}`)].join(','),
     '--restricted', '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
     '--no-session-persistence', '--disable-slash-commands', '--no-chrome',
     '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { qa: { command: process.execPath, args: [bridgePath] } } }),
@@ -244,7 +257,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     type: 'live.tool', timestamp: operation.timestamp, agentId: operation.agentId,
     tool: operation.tool, artifact: operation.artifact ? operation.artifact.split(/[\\/]/).at(-1) : null
   }) });
-  record = { version: '0.5.0', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
+  record = { version: '0.5.1', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
     liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits,
     taskDefinitions: config.tasks.map(task => ({ id: task.id, provider: task.provider, role: task.role ?? null, focus: task.focus })),
@@ -257,6 +270,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     if (event.type === 'turn.finished' && event.reason) console.log(`[durum] ${event.agentId}: ${event.state} | ${event.reason}`);
   } });
   const endpoint = await bus.listen();
+  const enabledToolNames = availableTeamTools(config).map(tool => tool.name);
   dashboard = new RunDashboard(record);
   const dashboardUrl = await dashboard.listen();
   const bridge = join(dirname(fileURLToPath(import.meta.url)), 'team-mcp.mjs');
@@ -279,7 +293,8 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
       const current = await doctor(config, runProcess, { signal: context.signal, activeSession: true });
       if (!current[task.provider].ready) return { state: 'failed', reason: 'SUBSCRIPTION_LOGIN_NOT_CONFIRMED' };
       const token = bus.issueToken(task.id);
-      const brokerEnv = { SUBSCRIPTION_QA_BUS_URL: endpoint, SUBSCRIPTION_QA_BUS_TOKEN: token };
+      const brokerEnv = { SUBSCRIPTION_QA_BUS_URL: endpoint, SUBSCRIPTION_QA_BUS_TOKEN: token,
+        SUBSCRIPTION_QA_TOOL_NAMES: JSON.stringify(enabledToolNames) };
       const evidenceBeforeTurn = runtime.evidenceIds(task.id);
       console.log(`[agent] ${task.id}: ${task.provider}`);
       try {

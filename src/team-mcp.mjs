@@ -4,9 +4,14 @@ import { teamTools, brokerTimeoutMs } from './message-bus.mjs';
 // MCP stdio JSON-RPC. stdout is protocol only; all state lives in the authenticated broker.
 const endpoint = process.env.SUBSCRIPTION_QA_BUS_URL;
 const token = process.env.SUBSCRIPTION_QA_BUS_TOKEN;
+let exposedTools;
 try {
   const url = new URL(endpoint);
   if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.pathname !== '/tool' || !token) throw new Error();
+  const names = JSON.parse(process.env.SUBSCRIPTION_QA_TOOL_NAMES);
+  if (!Array.isArray(names) || names.some(name => typeof name !== 'string' || !teamTools.some(tool => tool.name === name)) ||
+    new Set(names).size !== names.length) throw new Error();
+  exposedTools = teamTools.filter(tool => names.includes(tool.name));
 } catch { console.error('Invalid local QA broker configuration.'); process.exit(2); }
 
 const reply = object => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...object }) + '\n');
@@ -27,12 +32,15 @@ async function handle(line) {
     const supported = ['2024-11-05', '2025-03-26', '2025-06-18', '2025-11-25'];
     const requested = request.params?.protocolVersion;
     reply({ id, result: { protocolVersion: supported.includes(requested) ? requested : '2025-06-18',
-      capabilities: { tools: {} }, serverInfo: { name: 'subscription-qa-team', version: '0.5.0' },
+      capabilities: { tools: {} }, serverInfo: { name: 'subscription-qa-team', version: '0.5.1' },
       instructions: 'Use these tools DURING work to communicate. Check inbox at checkpoints. Yield with decision=waiting when a reply is required; never busy-poll.' } }); return;
   }
   if (request.method === 'ping') { reply({ id, result: {} }); return; }
-  if (request.method === 'tools/list') { reply({ id, result: { tools: teamTools } }); return; }
+  if (request.method === 'tools/list') { reply({ id, result: { tools: exposedTools } }); return; }
   if (request.method !== 'tools/call') { reply({ id, error: { code: -32601, message: 'Method not found' } }); return; }
+  if (!exposedTools.some(tool => tool.name === request.params?.name)) {
+    reply({ id, error: { code: -32602, message: 'Tool is not enabled for this run' } }); return;
+  }
   const controller = new AbortController();
   const timeout = AbortSignal.timeout(brokerTimeoutMs(request.params?.name));
   try {

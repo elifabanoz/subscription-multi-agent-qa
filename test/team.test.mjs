@@ -5,7 +5,7 @@ import { request as httpRequest } from 'node:http';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { MessageBus, teamTools, brokerTimeoutMs } from '../src/message-bus.mjs';
-import { scheduleTeam, teamArguments, publicActivity, teamLimits } from '../src/team.mjs';
+import { scheduleTeam, teamArguments, publicActivity, teamLimits, availableTeamTools } from '../src/team.mjs';
 import { runProcess } from '../src/core.mjs';
 
 const task = (id, provider, dependsOn = []) => ({ id, provider, dependsOn, focus: 'Test fixture' });
@@ -22,6 +22,21 @@ const ask = (bus, from = 'student', to = 'parent', key = 'question-1') => bus.ca
 test('configured per-agent message limit is validated and preserved', () => {
   assert.equal(teamLimits(config(tasks, { maxMessages: 20, maxMessagesPerAgent: 3 })).maxMessagesPerAgent, 3);
   assert.throws(() => teamLimits(config(tasks, { maxMessages: 2, maxMessagesPerAgent: 3 })), /maxMessagesPerAgent/);
+});
+
+test('available team tools follow live capabilities and screenshot consent', () => {
+  const names = config => availableTeamTools(config).map(tool => tool.name);
+  const sourceOnly = names({ live: { browser: { enabled: false }, android: { enabled: false } } });
+  assert.ok(sourceOnly.includes('send_message'));
+  assert.ok(!sourceOnly.some(name => name.startsWith('browser_') || name.startsWith('android_')));
+  const browser = names({ live: { browser: { enabled: true }, android: { enabled: false } } });
+  assert.ok(browser.includes('browser_open'));
+  assert.ok(!browser.some(name => name.startsWith('android_')));
+  const android = names({ live: { browser: { enabled: false }, android: { enabled: true, allowScreenshots: false } } });
+  assert.ok(android.includes('android_dump_ui'));
+  assert.ok(!android.includes('android_screenshot'));
+  const androidWithScreenshots = names({ live: { android: { enabled: true, allowScreenshots: true } } });
+  assert.ok(androidWithScreenshots.includes('android_screenshot'));
 });
 function handleInbox(bus, id) {
   const { messages } = bus.call(id, 'receive_messages', {});
@@ -175,9 +190,10 @@ test('broker rechecks a capability token after reading a request body', async t 
   assert.deepEqual(await response, { status: 403, body: '{"error":"FORBIDDEN"}' });
 });
 
-function mcpClient(t, endpoint, token) {
+function mcpClient(t, endpoint, token, toolNames = teamTools.map(tool => tool.name)) {
   const child = spawn(process.execPath, [fileURLToPath(new URL('../src/team-mcp.mjs', import.meta.url))], {
-    env: { ...process.env, SUBSCRIPTION_QA_BUS_URL: endpoint, SUBSCRIPTION_QA_BUS_TOKEN: token }, stdio: ['pipe', 'pipe', 'pipe']
+    env: { ...process.env, SUBSCRIPTION_QA_BUS_URL: endpoint, SUBSCRIPTION_QA_BUS_TOKEN: token,
+      SUBSCRIPTION_QA_TOOL_NAMES: JSON.stringify(toolNames) }, stdio: ['pipe', 'pipe', 'pipe']
   });
   const pending = new Map(); let sequence = 0;
   const lines = createInterface({ input: child.stdout });
@@ -209,6 +225,18 @@ function mcpClient(t, endpoint, token) {
     return JSON.parse(response.result.content[0].text);
   } };
 }
+
+test('MCP bridge exposes only coordinator-enabled tools', async t => {
+  const bus = new MessageBus(tasks);
+  const endpoint = await bus.listen(); t.after(() => bus.close());
+  const allowed = ['send_message', 'receive_messages', 'reply_message', 'ack_message', 'get_team_status'];
+  const client = mcpClient(t, endpoint, bus.issueToken('student'), allowed);
+  await client.request('initialize', { protocolVersion: '2025-06-18', capabilities: {}, clientInfo: { name: 'fixture', version: '1' } });
+  const listed = await client.request('tools/list');
+  assert.deepEqual(listed.result.tools.map(tool => tool.name), allowed);
+  const denied = await client.request('tools/call', { name: 'browser_open', arguments: { path: '/', key: 'denied-browser' } });
+  assert.deepEqual(denied.error, { code: -32602, message: 'Tool is not enabled for this run' });
+});
 
 test('MCP bridge reports explicit request cancellation instead of broker unavailability', { timeout: 6000 }, async t => {
   let observeAbort;
@@ -426,7 +454,8 @@ test('team abort reaches native subprocess and preserves unfinished task status'
 });
 
 test('native arguments expose only communication tools alongside source-reading permissions', () => {
-  const env = { SUBSCRIPTION_QA_BUS_URL: 'http://127.0.0.1:1234/tool', SUBSCRIPTION_QA_BUS_TOKEN: 'fixture-token' };
+  const env = { SUBSCRIPTION_QA_BUS_URL: 'http://127.0.0.1:1234/tool', SUBSCRIPTION_QA_BUS_TOKEN: 'fixture-token',
+    SUBSCRIPTION_QA_TOOL_NAMES: JSON.stringify(teamTools.map(tool => tool.name)) };
   const codex = teamArguments('codex', '/schema.json', '/bridge.mjs', env);
   const claude = teamArguments('claude', '/schema.json', '/bridge.mjs', env, { claudeMaxTurns: 90 });
   assert.ok(codex.includes('mcp_servers.qa.required=true'));
@@ -444,4 +473,5 @@ test('native arguments expose only communication tools alongside source-reading 
   assert.equal(claude[claude.indexOf('--max-turns') + 1], '90');
   for (const tool of teamTools) assert.ok(claude.join(' ').includes('mcp__qa__' + tool.name));
   assert.ok(!claude.includes('--dangerously-skip-permissions'));
+  assert.throws(() => teamArguments('codex', '/schema.json', '/bridge.mjs'), /Invalid enabled team tools/);
 });

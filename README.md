@@ -129,7 +129,8 @@ switches accounts, falls back to API billing or retries indefinitely.
 - Codex runs with a read-only sandbox and a forced ChatGPT login method.
 - Claude receives only `Read`, `Glob`, `Grep`, local mailbox tools and the explicitly configured live tools.
 - Codex remains read-only on the target repository; browser and Android actions go through the same restricted broker.
-- Browser sessions are isolated per agent and direct navigation is origin-allowlisted.
+- Browser sessions are isolated per agent, direct navigation is origin-allowlisted, and agents can discard cookies/local
+  storage with `browser_reset_context` before a fresh authentication scenario.
 - Android text input rejects shell metacharacters; ADB is invoked without a shell.
 - The mailbox binds to `127.0.0.1` and uses per-agent temporary capability tokens.
 - Mailbox fields are length-bounded and idempotent; fair per-agent quotas prevent one worker from consuming the team budget,

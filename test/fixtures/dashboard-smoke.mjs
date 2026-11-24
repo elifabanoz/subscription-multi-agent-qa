@@ -7,7 +7,7 @@ import { RunDashboard } from '../../src/dashboard.mjs';
 
 const sample = {
   repository: 'example/subscription-qa-target', commit: '4a2695b70877d673', dirtyCheckout: false,
-  version: '0.4.4', mode: 'live-team-qa', totalTurns: 5, liveUiTestsExecuted: true, evidenceIndependentlyVerified: false,
+  version: '0.4.5', mode: 'live-team-qa', totalTurns: 5, liveUiTestsExecuted: true, evidenceIndependentlyVerified: false,
   limits: { maxMessages: 100 },
   taskDefinitions: [
     { id: 'inventory', provider: 'codex', role: 'architecture', focus: 'Map architecture, roles and trust boundaries.' },

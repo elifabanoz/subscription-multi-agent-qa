@@ -9,6 +9,7 @@ const rawLiveTools = [
   { name: 'browser_open', description: 'Open a configured local or staging URL in your isolated browser session.', inputSchema: {
     type: 'object', additionalProperties: false, required: ['path'], properties: { path: { type: 'string' } }
   } },
+  { name: 'browser_reset_context', description: 'Close and discard your isolated browser context, including cookies and local storage, before a fresh authentication scenario.', inputSchema: empty },
   { name: 'browser_snapshot', description: 'Read the current page URL, title, visible text and interactive controls.', inputSchema: empty },
   { name: 'browser_click', description: 'Click the first element matching a CSS selector.', inputSchema: {
     type: 'object', additionalProperties: false, required: ['selector'], properties: { selector: { type: 'string' } }
@@ -237,6 +238,15 @@ export class LiveQaRuntime {
   }
   async performCall(agentId, name, args = {}) {
     if (name.startsWith('browser_')) {
+      if (name === 'browser_reset_context') {
+        if (!this.config.browser?.enabled) throw new Error('BROWSER_LIVE_QA_DISABLED');
+        const existing = this.pages.get(agentId);
+        if (existing) {
+          try { await existing.context.close(); }
+          finally { this.pages.delete(agentId); }
+        }
+        return this.record(agentId, name, { reset: true });
+      }
       const page = await this.page(agentId);
       if (name === 'browser_open') {
         const url = this.target(args.path);

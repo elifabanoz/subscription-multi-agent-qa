@@ -10,7 +10,7 @@ test('package, report and MCP server versions stay aligned', async () => {
   const mcp = await readFile(new URL('src/team-mcp.mjs', root), 'utf8');
   const escaped = pkg.version.replaceAll('.', '\\.');
 
-  assert.equal(pkg.version, '0.4.4');
+  assert.equal(pkg.version, '0.4.5');
   assert.match(team, new RegExp(`version: '${escaped}'`));
   assert.match(mcp, new RegExp(`version: '${escaped}'`));
 });

@@ -119,6 +119,34 @@ test('concurrent first browser calls share one Chromium launch', async () => {
   await runtime.close();
 });
 
+test('browser context reset closes and discards only that agent session', async () => {
+  let contexts = 0;
+  let closes = 0;
+  const isolatedBrowser = { async launch() { return {
+    async newContext() {
+      const id = ++contexts;
+      return {
+        async route() {},
+        async newPage() { return { ...page, current: 'about:blank', contextId: id }; },
+        async close() { closes += 1; }
+      };
+    },
+    async close() {}
+  }; } };
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-reset', { browserType: isolatedBrowser });
+  await runtime.call('qa', 'browser_open', { path: '/first' });
+  await runtime.call('other-agent', 'browser_open', { path: '/other' });
+  const reset = await runtime.call('qa', 'browser_reset_context', {});
+  assert.equal(reset.reset, true);
+  assert.equal(closes, 1);
+  assert.equal(runtime.pages.has('qa'), false);
+  assert.equal(runtime.pages.has('other-agent'), true);
+  await runtime.call('qa', 'browser_open', { path: '/fresh' });
+  assert.equal(contexts, 3);
+  assert.equal(runtime.pages.get('qa').page.contextId, 3);
+  await runtime.close();
+});
+
 test('browser evidence denies non-http schemes and foreign origins by default', async t => {
   const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-scheme-guard', { browserType });
   t.after(async () => { page.current = 'about:blank'; await runtime.close(); });

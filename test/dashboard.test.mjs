@@ -40,10 +40,10 @@ test('dashboard snapshot exposes explicit collaboration data without task histor
 });
 
 test('dashboard snapshot exposes bounded run provenance without inventing missing booleans', () => {
-  const snapshot = dashboardSnapshot({ ...record, version: '0.4.4', dirtyCheckout: false,
+  const snapshot = dashboardSnapshot({ ...record, version: '0.4.5', dirtyCheckout: false,
     liveUiTestsExecuted: true, evidenceIndependentlyVerified: false });
   assert.deepEqual(snapshot.provenance, {
-    version: '0.4.4',
+    version: '0.4.5',
     dirtyCheckout: false,
     liveUiTestsExecuted: true,
     evidenceIndependentlyVerified: false

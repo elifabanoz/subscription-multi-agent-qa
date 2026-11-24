@@ -31,6 +31,23 @@ test('dashboard snapshot exposes explicit collaboration data without task histor
   assert.equal(snapshot.operations[0].artifact, 'screen.png');
   assert.equal(snapshot.operations[0].verification, null);
   assert.equal(snapshot.activity[0].from, 'frontend');
+  assert.deepEqual(snapshot.provenance, {
+    version: null,
+    dirtyCheckout: null,
+    liveUiTestsExecuted: null,
+    evidenceIndependentlyVerified: null
+  });
+});
+
+test('dashboard snapshot exposes bounded run provenance without inventing missing booleans', () => {
+  const snapshot = dashboardSnapshot({ ...record, version: '0.4.4', dirtyCheckout: false,
+    liveUiTestsExecuted: true, evidenceIndependentlyVerified: false });
+  assert.deepEqual(snapshot.provenance, {
+    version: '0.4.4',
+    dirtyCheckout: false,
+    liveUiTestsExecuted: true,
+    evidenceIndependentlyVerified: false
+  });
 });
 
 test('dashboard snapshot preserves reply relationships for readable conversations', () => {

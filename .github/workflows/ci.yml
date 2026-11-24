@@ -20,6 +20,8 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run check
+      - run: npx playwright install --with-deps chromium
+      - run: npm run smoke:dashboard
 
       # `doctor` bilinçli olarak CI'da çalışmaz. Codex ve Claude abonelik
       # oturumları yalnız kullanıcının yerel WSL ortamında doğrulanır.

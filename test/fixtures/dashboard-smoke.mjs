@@ -6,7 +6,8 @@ import { chromium } from 'playwright';
 import { RunDashboard } from '../../src/dashboard.mjs';
 
 const sample = {
-  repository: 'example/subscription-qa-target', commit: '4a2695b70877d673', mode: 'live-team-qa', totalTurns: 5,
+  repository: 'example/subscription-qa-target', commit: '4a2695b70877d673', dirtyCheckout: false,
+  version: '0.4.4', mode: 'live-team-qa', totalTurns: 5, liveUiTestsExecuted: true, evidenceIndependentlyVerified: false,
   limits: { maxMessages: 100 },
   taskDefinitions: [
     { id: 'inventory', provider: 'codex', role: 'architecture', focus: 'Map architecture, roles and trust boundaries.' },
@@ -46,6 +47,12 @@ try {
   assert.equal(await page.locator('.chat-message').count(), 2);
   assert.equal(await page.locator('.reply-context').count(), 1);
   assert.equal(await page.locator('.check-badge').count(), 2);
+  assert.match(await page.locator('.check-badge').first().textContent(), /Inventory: source observation/);
+  assert.equal(await page.locator('.provenance-chip').count(), 4);
+  assert.match(await page.locator('#provenance').textContent(), /checkout clean/);
+  assert.match(await page.locator('#provenance').textContent(), /live UI yes/);
+  assert.equal(await page.locator('h1').textContent(), 'Subscription QA');
+  assert.equal(await page.locator('h2').count(), 4);
   assert.match(await page.locator('.reply-context').textContent(), /Reply to backend-api/);
   assert.equal(await page.locator('#conversationMeta').textContent(), '2 messages · 2/100 budget · 33 sends/agent');
   dashboard.update({ ...sample, finishedAt: new Date().toISOString(), stopReason: 'SMOKE_COMPLETE' });

@@ -82,6 +82,11 @@ export function dashboardSnapshot(record = {}) {
       kind: operation.verification.kind
     } : null
   }));
+  const liveCapabilities = {
+    browser: booleanOrNull(record.live?.capabilities?.browser),
+    android: booleanOrNull(record.live?.capabilities?.android),
+    androidScreenshots: booleanOrNull(record.live?.capabilities?.androidScreenshots)
+  };
   const activity = (record.activity ?? []).slice(-250).map(event => ({
     sequence: event.sequence ?? null,
     timestamp: event.timestamp ?? null,
@@ -137,6 +142,7 @@ export function dashboardSnapshot(record = {}) {
     tasks,
     messages,
     messageBudget,
+    liveCapabilities,
     operations,
     activity
   });
@@ -173,7 +179,7 @@ function render(data){
   const current=el('currentWork');current.replaceChildren(node('span','pulse'));const currentText=node('span');if(running.length)currentText.textContent=running.map(task=>task.id+' is working on: '+(task.focus||task.summary||'assigned review')).join(' · ');else if(waiting.length)currentText.textContent=waiting.map(task=>task.id+' is waiting for a teammate').join(' · ');else currentText.textContent=data.outcome?.message||'Run status unavailable.';current.append(currentText);
   const chat=el('chat'),messagesById=new Map(data.messages.map(item=>[item.id,item]));chat.replaceChildren();el('conversationMeta').textContent=data.messageBudget?.label||(data.messages.length+' messages');if(!data.messages.length)chat.append(empty('No team messages yet','Questions and answers between agents will appear here.'));for(const item of data.messages){const row=node('article','chat-message '+item.kind+(item.inReplyTo?' reply':''));row.append(node('span','avatar '+(providers.get(item.from)||''),initials(item.from)));const main=node('div','message-main');const head=node('div','message-head');head.append(node('b','',item.from),node('span','message-to','to '+item.to),node('time','message-time',time(item.createdAt)));main.append(head);if(item.inReplyTo){const original=messagesById.get(item.inReplyTo),excerpt=typeof original?.body==='string'?original.body.replace(/\s+/g,' ').slice(0,96):'';main.append(node('div','reply-context',original?('Reply to '+original.from+(excerpt?': '+excerpt:'')):'Reply to an earlier message'))}main.append(node('div','bubble',item.body));const tags=node('div','message-tags');tags.append(node('span','tag kind',item.kind),node('span','tag',item.scenarioId));if(item.acknowledged)tags.append(node('span','tag','acknowledged'));main.append(tags);row.append(main);chat.append(row)}if(data.messages.length)chat.scrollTop=chat.scrollHeight;
   const activity=el('activity');activity.replaceChildren();el('activitySummary').textContent=data.activity.length+' events';if(!data.activity.length)activity.append(empty('Nothing to show yet'));for(const item of data.activity.slice().reverse()){const copy=eventCopy(item),row=node('article','event '+item.type.replaceAll('.','-'));row.append(node('span','event-dot'));const body=node('div');body.append(node('div','event-title',copy[0]),node('div','event-detail',copy[1]),node('div','event-time',time(item.timestamp)));row.append(body);activity.append(row)}
-  const evidence=el('evidence');evidence.replaceChildren();el('evidenceSummary').textContent=data.operations.length+' recorded';if(!data.operations.length)evidence.append(empty('No live evidence yet'));for(const item of data.operations.slice().reverse()){const row=node('article','evidence-item');row.append(node('div','evidence-tool',item.tool),node('div','evidence-meta',[item.agentId,item.verification&&item.verification.status,item.verification&&item.verification.checkName,item.artifact||item.id,time(item.timestamp)].filter(Boolean).join(' · ')));evidence.append(row)}
+  const evidence=el('evidence'),capability=value=>value===true?'on':value===false?'off':'unknown';evidence.replaceChildren();el('evidenceSummary').textContent=[data.operations.length+' recorded','Browser '+capability(data.liveCapabilities?.browser),'Android '+capability(data.liveCapabilities?.android),'screenshots '+capability(data.liveCapabilities?.androidScreenshots)].join(' · ');if(!data.operations.length)evidence.append(empty('No live evidence yet'));for(const item of data.operations.slice().reverse()){const row=node('article','evidence-item');row.append(node('div','evidence-tool',item.tool),node('div','evidence-meta',[item.agentId,item.verification&&item.verification.status,item.verification&&item.verification.checkName,item.artifact||item.id,time(item.timestamp)].filter(Boolean).join(' · ')));evidence.append(row)}
 }
 let stream=null,lastSnapshot=null;function connection(label,live=false){el('connection').textContent=label;el('connectionDot').classList.toggle('live',live)}async function refresh(){const response=await fetch(prefix+'/state',{cache:'no-store'});if(!response.ok)throw new Error('state');const data=await response.json();lastSnapshot=data;render(data);if(data.finishedAt&&stream){stream.close();stream=null;connection(data.outcome?.label||'Run finished',true)}return data}function decode(value){const bytes=Uint8Array.from(atob(value),character=>character.charCodeAt(0));return JSON.parse(new TextDecoder().decode(bytes))}if(initialEncoded){const data=decode(initialEncoded);render(data);connection(data.outcome?.label||'Archived snapshot',true)}else{refresh().then(data=>{if(!data.finishedAt)connection('Live',true)}).catch(()=>connection('Disconnected'));stream=new EventSource(prefix+'/events');stream.addEventListener('update',()=>refresh().catch(()=>connection('Disconnected')));stream.onerror=()=>{if(lastSnapshot?.finishedAt){stream?.close();stream=null;connection(lastSnapshot.outcome?.label||'Run finished',true)}else connection('Reconnecting')}}
 </script></body></html>`;

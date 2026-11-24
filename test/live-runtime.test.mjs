@@ -39,6 +39,11 @@ const baseConfig = {
 
 test('live config restricts browser origins and Android identifiers', () => {
   assert.doesNotThrow(() => validateConfig(structuredClone(baseConfig)));
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-capabilities');
+  assert.deepEqual(runtime.capabilities(), { browser: true, android: true, androidScreenshots: true });
+  const noScreenshots = structuredClone(baseConfig); noScreenshots.live.android.allowScreenshots = false;
+  assert.deepEqual(new LiveQaRuntime(noScreenshots, '/tmp/live-capabilities').capabilities(),
+    { browser: true, android: true, androidScreenshots: false });
   const origin = structuredClone(baseConfig); origin.live.browser.allowedOrigins = ['https://example.com'];
   assert.throws(() => validateConfig(origin), /origin/i);
   const packageConfig = structuredClone(baseConfig); packageConfig.live.android.package = 'bad package';

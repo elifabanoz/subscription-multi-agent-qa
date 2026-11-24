@@ -110,7 +110,9 @@ export class LiveQaRuntime {
     this.onOperation = onOperation;
   }
   capabilities() {
-    return { browser: Boolean(this.config.browser?.enabled), android: Boolean(this.config.android?.enabled) };
+    const android = Boolean(this.config.android?.enabled);
+    return { browser: Boolean(this.config.browser?.enabled), android,
+      androidScreenshots: android && this.config.android?.allowScreenshots === true };
   }
   evidenceIds(agentId) {
     return new Set(this.operations.filter(item => item.agentId === agentId).map(item => item.id));

@@ -13,7 +13,8 @@ const record = {
   messages: [{ id: 'm1', from: 'frontend', to: 'backend', kind: 'question', scenarioId: 'login',
     body: '<script>alert(1)</script>', acknowledged: false }],
   activity: [{ sequence: 1, timestamp: '2026-01-01T00:00:00Z', type: 'message.sent', from: 'frontend', to: 'backend', kind: 'question', scenarioId: 'login', body: 'What does 401 return?' }],
-  live: { operations: [{ id: 'live-1', agentId: 'frontend', tool: 'browser_screenshot', timestamp: '2026-01-01T00:00:00Z', artifact: '/private/run/screen.png' }] }
+  live: { capabilities: { browser: true, android: true, androidScreenshots: false },
+    operations: [{ id: 'live-1', agentId: 'frontend', tool: 'browser_screenshot', timestamp: '2026-01-01T00:00:00Z', artifact: '/private/run/screen.png' }] }
 };
 
 test('dashboard snapshot exposes explicit collaboration data without task history or artifact paths', () => {
@@ -30,6 +31,7 @@ test('dashboard snapshot exposes explicit collaboration data without task histor
   });
   assert.equal(snapshot.operations[0].artifact, 'screen.png');
   assert.equal(snapshot.operations[0].verification, null);
+  assert.deepEqual(snapshot.liveCapabilities, { browser: true, android: true, androidScreenshots: false });
   assert.equal(snapshot.activity[0].from, 'frontend');
   assert.deepEqual(snapshot.provenance, {
     version: null,
@@ -40,10 +42,10 @@ test('dashboard snapshot exposes explicit collaboration data without task histor
 });
 
 test('dashboard snapshot exposes bounded run provenance without inventing missing booleans', () => {
-  const snapshot = dashboardSnapshot({ ...record, version: '0.5.2', dirtyCheckout: false,
+  const snapshot = dashboardSnapshot({ ...record, version: '0.5.3', dirtyCheckout: false,
     liveUiTestsExecuted: true, evidenceIndependentlyVerified: false });
   assert.deepEqual(snapshot.provenance, {
-    version: '0.5.2',
+    version: '0.5.3',
     dirtyCheckout: false,
     liveUiTestsExecuted: true,
     evidenceIndependentlyVerified: false

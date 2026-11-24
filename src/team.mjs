@@ -257,7 +257,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     type: 'live.tool', timestamp: operation.timestamp, agentId: operation.agentId,
     tool: operation.tool, artifact: operation.artifact ? operation.artifact.split(/[\\/]/).at(-1) : null
   }) });
-  record = { version: '0.5.2', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
+  record = { version: '0.5.3', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
     liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits,
     taskDefinitions: config.tasks.map(task => ({ id: task.id, provider: task.provider, role: task.role ?? null, focus: task.focus })),

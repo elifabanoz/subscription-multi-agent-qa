@@ -7,7 +7,7 @@ import { RunDashboard } from '../../src/dashboard.mjs';
 
 const sample = {
   repository: 'example/subscription-qa-target', commit: '4a2695b70877d673', dirtyCheckout: false,
-  version: '0.5.2', mode: 'live-team-qa', totalTurns: 5, liveUiTestsExecuted: true, evidenceIndependentlyVerified: false,
+  version: '0.5.3', mode: 'live-team-qa', totalTurns: 5, liveUiTestsExecuted: true, evidenceIndependentlyVerified: false,
   limits: { maxMessages: 100 },
   taskDefinitions: [
     { id: 'inventory', provider: 'codex', role: 'architecture', focus: 'Map architecture, roles and trust boundaries.' },
@@ -29,7 +29,7 @@ const sample = {
     { sequence: 3, timestamp: new Date(Date.now() - 6000).toISOString(), type: 'message.sent', from: 'frontend-client', to: 'backend-api', kind: 'answer', scenarioId: 'session-expiry', body: 'The protected stack is cleared and login is shown.' },
     { timestamp: new Date(Date.now() - 3000).toISOString(), type: 'live.tool', agentId: 'frontend-client', tool: 'android_dump_ui', artifact: null }
   ],
-  live: { operations: [
+  live: { capabilities: { browser: true, android: true, androidScreenshots: false }, operations: [
     { id: 'live-1', agentId: 'frontend-client', tool: 'browser_screenshot', timestamp: new Date().toISOString(), artifact: '/private/login.png' },
     { id: 'live-2', agentId: 'frontend-client', tool: 'android_dump_ui', timestamp: new Date().toISOString(), artifact: null }
   ] }
@@ -55,6 +55,7 @@ try {
   assert.equal(await page.locator('h2').count(), 4);
   assert.match(await page.locator('.reply-context').textContent(), /Reply to backend-api/);
   assert.equal(await page.locator('#conversationMeta').textContent(), '2 messages · 2/100 budget · 33 sends/agent');
+  assert.match(await page.locator('#evidenceSummary').textContent(), /Browser on · Android on · screenshots off/);
   dashboard.update({ ...sample, finishedAt: new Date().toISOString(), stopReason: 'SMOKE_COMPLETE' });
   await page.waitForFunction(() => document.getElementById('connection')?.textContent === 'Run interrupted');
   assert.equal(await page.locator('#connection').textContent(), 'Run interrupted');

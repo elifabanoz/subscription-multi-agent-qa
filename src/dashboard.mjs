@@ -55,6 +55,7 @@ export function dashboardSnapshot(record = {}) {
     replyId: message.replyId ?? null
   }));
   const maxMessages = Number.isInteger(record.limits?.maxMessages) && record.limits.maxMessages > 0 ? record.limits.maxMessages : null;
+  const configuredPerAgent = Number.isInteger(record.limits?.maxMessagesPerAgent) && record.limits.maxMessagesPerAgent > 0 ? record.limits.maxMessagesPerAgent : null;
   const repliesReserved = messages.filter(message => ['question', 'task'].includes(message.kind) && !message.replyId).length;
   const messageLabel = `${messages.length} message${messages.length === 1 ? '' : 's'}`;
   const budgetLabel = maxMessages ? [messageLabel, `${messages.length + repliesReserved}/${maxMessages} budget`,
@@ -65,7 +66,7 @@ export function dashboardSnapshot(record = {}) {
     repliesReserved,
     effectiveUsed: messages.length + repliesReserved,
     maxMessages,
-    maxMessagesPerAgent: maxMessages && tasks.length ? Math.max(1, Math.floor(maxMessages / tasks.length)) : null,
+    maxMessagesPerAgent: configuredPerAgent ?? (maxMessages && tasks.length ? Math.max(1, Math.floor(maxMessages / tasks.length)) : null),
     label: budgetLabel
   };
   const operations = (record.live?.operations ?? []).map(operation => ({

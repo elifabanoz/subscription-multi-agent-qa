@@ -67,13 +67,16 @@ test('browser and Android tools produce agent-bound evidence', async t => {
   assert.match(opened.evidenceRef, /^\[live:live-[0-9]+\]$/);
   const snapshot = await runtime.call('qa', 'browser_snapshot', {});
   assert.match(snapshot.text, /Dashboard/);
+  await runtime.call('qa', 'browser_press', { selector: '#continue', keyboardKey: 'Enter' });
+  assert.ok(calls.some(item => Array.isArray(item) && item[0] === 'press' && item[1] === 'Enter'));
   const textAssertion = await runtime.call('qa', 'browser_assert_text', { check: 'Dashboard visible', text: 'Dashboard' });
   assert.equal(textAssertion.assertionStatus, 'passed');
   const urlAssertion = await runtime.call('qa', 'browser_assert_url', { check: 'Login URL', path: '/login' });
   assert.equal(urlAssertion.assertionStatus, 'passed');
   const failedAssertion = await runtime.call('qa', 'browser_assert_text', { check: 'Error shown', text: 'Missing text' });
   assert.equal(failedAssertion.assertionStatus, 'failed');
-  assert.deepEqual(runtime.evidenceFor('qa').get('live-3'), {
+  const textAssertionId = textAssertion.evidenceRef.match(/\[live:(live-[0-9]+)\]/)[1];
+  assert.deepEqual(runtime.evidenceFor('qa').get(textAssertionId), {
     checkName: 'Dashboard visible', status: 'passed', kind: 'text_present'
   });
   await assert.rejects(() => runtime.call('qa', 'browser_open', { path: 'https://example.com' }), /NOT_ALLOWED/);
@@ -94,6 +97,25 @@ test('browser screenshots mask editable fields', async () => {
   await runtime.call('qa', 'browser_screenshot', { name: 'masked' });
   assert.equal(page.screenshotOptions.maskColor, '#000000');
   assert.equal(page.screenshotOptions.mask.length, 1);
+  await runtime.close();
+});
+
+test('concurrent first browser calls share one Chromium launch', async () => {
+  let launches = 0;
+  const concurrentBrowser = { async launch() {
+    launches += 1;
+    await new Promise(resolve => setTimeout(resolve, 10));
+    return {
+      async newContext() { return { async route() {}, async newPage() { return { ...page, current: 'about:blank' }; }, async close() {} }; },
+      async close() {}
+    };
+  } };
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-launch', { browserType: concurrentBrowser, execute: async () => ({ code: 0, stdout: 'ok', stderr: '' }) });
+  await Promise.all([
+    runtime.call('qa', 'browser_open', { path: '/one' }),
+    runtime.call('other-agent', 'browser_open', { path: '/two' })
+  ]);
+  assert.equal(launches, 1);
   await runtime.close();
 });
 
@@ -157,6 +179,24 @@ test('Android operations are device-serialized and reject capture outside the co
   }) });
   await assert.rejects(() => foreign.call('qa', 'android_dump_ui', {}), /NOT_FOREGROUND/);
   assert.equal(foreign.operations.length, 0);
+
+  const prefixCollision = new LiveQaRuntime(baseConfig, '/tmp/live-prefix', { browserType, execute: async () => ({
+    code: 0, stdout: 'mCurrentFocus=Window{ com.example.app.evil/.MainActivity }', stderr: ''
+  }) });
+  await assert.rejects(() => prefixCollision.call('qa', 'android_dump_ui', {}), /NOT_FOREGROUND/);
+});
+
+test('Android UI dump cleanup runs even when uiautomator dump fails', async () => {
+  const calls = [];
+  const execute = async (_command, args) => {
+    calls.push(args);
+    if (args.includes('dumpsys')) return { code: 0, stdout: 'mCurrentFocus=Window{ com.example.app/.MainActivity }', stderr: '' };
+    if (args.includes('uiautomator')) return { code: 1, stdout: '', stderr: 'failed' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-dump-cleanup', { browserType, execute });
+  await assert.rejects(() => runtime.call('qa', 'android_dump_ui', {}), /ADB_COMMAND_FAILED/);
+  assert.ok(calls.some(args => args.includes('rm') && args.includes('-f')));
 });
 
 test('passed and failed claims require evidence created by that agent', () => {

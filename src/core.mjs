@@ -342,11 +342,12 @@ export async function audit(config, repo, out) {
   };
   const states = await schedule(config, async (task, dependencies) => {
     // Recheck before each invocation. A user switching CLI login cannot silently switch billing here.
-    const current = await doctor(config);
+    const current = await doctor(config, runProcess, { activeSession: true });
     if (!current[task.provider].ready) return { state: 'failed', reason: 'SUBSCRIPTION_LOGIN_NOT_CONFIRMED' };
     console.log(`${task.id}: ${task.provider}`);
     const execution = await runProcess(config.providers[task.provider].command,
-      argumentsFor(task.provider, schemaPath), { cwd: directory, timeoutMs: config.timeoutMs, input: promptFor(task, dependencies) });
+      argumentsFor(task.provider, schemaPath), { cwd: directory, timeoutMs: config.timeoutMs,
+        input: promptFor(task, dependencies), env: providerEnvironment(process.env) });
     if (execution.timedOut) return { state: 'failed', reason: 'TIMEOUT' };
     if (execution.overflow) return { state: 'failed', reason: 'OUTPUT_LIMIT' };
     if (execution.code !== 0) return { state: 'failed', reason: 'CLI_FAILED_AUTH_LIMIT_OR_RUNTIME', exitCode: execution.code };
@@ -356,4 +357,10 @@ export async function audit(config, repo, out) {
   record.finishedAt = new Date().toISOString();
   await persist(states);
   return record;
+}
+
+export function reportRequiresAttention(report = {}) {
+  if (report.stopReason) return true;
+  return Object.values(report.tasks ?? {}).some(task => task.state !== 'completed' || task.followUpState === 'blocked' ||
+    task.result?.checks?.some(check => ['failed', 'suspected_issue', 'not_tested'].includes(check.status)));
 }

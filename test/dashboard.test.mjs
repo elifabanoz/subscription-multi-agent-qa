@@ -42,6 +42,11 @@ test('dashboard snapshot preserves reply relationships for readable conversation
   assert.equal(snapshot.messages[1].kind, 'answer');
 });
 
+test('dashboard uses the configured per-agent message budget', () => {
+  const snapshot = dashboardSnapshot({ ...record, limits: { maxMessages: 20, maxMessagesPerAgent: 3 } });
+  assert.equal(snapshot.messageBudget.maxMessagesPerAgent, 3);
+});
+
 test('dashboard outcome exposes failure, interruption and follow-up reasons', () => {
   const interrupted = dashboardSnapshot({ ...record, finishedAt: '2026-01-01T01:00:00Z', stopReason: 'INTERRUPTED',
     tasks: { frontend: { provider: 'claude', state: 'failed', turns: 2, reason: 'INTERRUPTED' } } });

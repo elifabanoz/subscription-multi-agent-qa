@@ -15,6 +15,9 @@ export function teamLimits(config) {
     ['maxDurationMs', 1000, 14400000], ['claudeMaxTurns', 1, 200]]) {
     if (!Number.isInteger(limits[key]) || limits[key] < min || limits[key] > max) throw new Error(`Invalid team limit: ${key}`);
   }
+  if (limits.maxMessagesPerAgent !== undefined && (!Number.isInteger(limits.maxMessagesPerAgent) ||
+    limits.maxMessagesPerAgent < 1 || limits.maxMessagesPerAgent > limits.maxMessages))
+    throw new Error('Invalid team limit: maxMessagesPerAgent');
   return limits;
 }
 
@@ -241,12 +244,13 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     type: 'live.tool', timestamp: operation.timestamp, agentId: operation.agentId,
     tool: operation.tool, artifact: operation.artifact ? operation.artifact.split(/[\\/]/).at(-1) : null
   }) });
-  record = { version: '0.4.2', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
+  record = { version: '0.4.3', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
     liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits,
     taskDefinitions: config.tasks.map(task => ({ id: task.id, provider: task.provider, role: task.role ?? null, focus: task.focus })),
     tasks: {}, messages: [], activity, live: runtime.summary() };
   const bus = new MessageBus(config.tasks, { maxMessages: limits.maxMessages, eventPath: join(out, 'events.jsonl'),
+    maxMessagesPerAgent: limits.maxMessagesPerAgent,
     toolHandler: (agentId, name, args) => runtime.call(agentId, name, args), onEvent: event => {
     pushActivity(publicActivity(event));
     if (event.type === 'message.sent') console.log(`[mesaj] ${event.message.from} → ${event.message.to} | ${event.message.scenarioId} | ${event.message.kind}`);
@@ -272,7 +276,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
   };
   try {
     const outcome = await scheduleTeam(config, bus, async (task, context) => {
-      const current = await doctor(config, runProcess, { signal: context.signal });
+      const current = await doctor(config, runProcess, { signal: context.signal, activeSession: true });
       if (!current[task.provider].ready) return { state: 'failed', reason: 'SUBSCRIPTION_LOGIN_NOT_CONFIRMED' };
       const token = bus.issueToken(task.id);
       const brokerEnv = { SUBSCRIPTION_QA_BUS_URL: endpoint, SUBSCRIPTION_QA_BUS_TOKEN: token };

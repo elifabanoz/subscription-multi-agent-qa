@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { validateConfig, assertSubscriptionEnvironment, hasSubscriptionAuth, argumentsFor,
   hasActiveSubscriptionSession, doctor, parseOutput, schedule, runProcess, promptFor, providerEnvironment } from '../src/core.mjs';
+import { reportRequiresAttention } from '../src/core.mjs';
 
 const config = JSON.parse(await readFile(new URL('../qa.config.json', import.meta.url), 'utf8'));
 const result = { summary: 'Kaynak incelemesi', handoff: 'UI henüz çalıştırılmadı.', checks: [
@@ -50,6 +51,16 @@ test('provider environment keeps runtime and subscription paths but drops unrela
   assert.equal(environment.DECOY_SECRET, undefined);
   assert.equal(environment.DATABASE_URL, undefined);
   assert.throws(() => providerEnvironment({}, { UNRELATED: 'no' }), /Unsupported provider environment extra/);
+});
+
+test('CLI attention gate follows terminal state, follow-up gaps and actionable check statuses', () => {
+  const task = checks => ({ state: 'completed', result: { checks } });
+  assert.equal(reportRequiresAttention({ tasks: { qa: task([{ status: 'source_observation' }]) } }), false);
+  assert.equal(reportRequiresAttention({ stopReason: 'TIMEOUT', tasks: {} }), true);
+  assert.equal(reportRequiresAttention({ tasks: { qa: { ...task([]), followUpState: 'blocked' } } }), true);
+  for (const status of ['failed', 'suspected_issue', 'not_tested']) {
+    assert.equal(reportRequiresAttention({ tasks: { qa: task([{ status }]) } }), true);
+  }
 });
 
 test('auth status must positively identify a subscription', () => {

@@ -5,7 +5,7 @@ import { request as httpRequest } from 'node:http';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { MessageBus, teamTools, brokerTimeoutMs } from '../src/message-bus.mjs';
-import { scheduleTeam, teamArguments, publicActivity } from '../src/team.mjs';
+import { scheduleTeam, teamArguments, publicActivity, teamLimits } from '../src/team.mjs';
 import { runProcess } from '../src/core.mjs';
 
 const task = (id, provider, dependsOn = []) => ({ id, provider, dependsOn, focus: 'Test fixture' });
@@ -17,6 +17,11 @@ const done = (decision = 'done') => ({ state: 'completed', result: { decision, s
   checks: [{ name: 'Runtime', status: 'not_tested', evidence: [] }], handoff: '' } });
 const ask = (bus, from = 'student', to = 'parent', key = 'question-1') => bus.call(from, 'send_message', {
   to, kind: 'question', scenarioId: 'parent-child-isolation', body: 'Can you check the recipient?', key
+});
+
+test('configured per-agent message limit is validated and preserved', () => {
+  assert.equal(teamLimits(config(tasks, { maxMessages: 20, maxMessagesPerAgent: 3 })).maxMessagesPerAgent, 3);
+  assert.throws(() => teamLimits(config(tasks, { maxMessages: 2, maxMessagesPerAgent: 3 })), /maxMessagesPerAgent/);
 });
 function handleInbox(bus, id) {
   const { messages } = bus.call(id, 'receive_messages', {});
@@ -75,6 +80,9 @@ test('message schemas and runtime reject malformed or oversized fields consisten
   for (const tool of teamTools.filter(item => item.name.startsWith('browser_') || item.name.startsWith('android_'))) {
     assert.ok(tool.inputSchema.required.includes('key'), `${tool.name} must require an idempotency key`);
   }
+  const press = teamTools.find(item => item.name === 'browser_press').inputSchema;
+  assert.ok(press.required.includes('keyboardKey'));
+  assert.ok(press.required.includes('key'));
   assert.equal(brokerTimeoutMs('browser_open'), 120000);
   assert.equal(brokerTimeoutMs('receive_messages'), 15000);
 });

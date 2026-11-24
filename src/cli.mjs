@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
-import { validateConfig, doctor, audit } from './core.mjs';
+import { validateConfig, doctor, audit, reportRequiresAttention } from './core.mjs';
 import { teamAudit, teamLimits } from './team.mjs';
 import { LiveQaRuntime } from './live-runtime.mjs';
 
@@ -47,6 +47,6 @@ async function main() {
     process.off('SIGINT', interrupt); process.off('SIGTERM', interrupt);
   }
   console.log(`Report: ${join(out, 'report.json')}`);
-  if (Object.values(report.tasks).some(t => t.state !== 'completed')) process.exitCode = 2;
+  if (reportRequiresAttention(report)) process.exitCode = 2;
 }
 main().catch(error => { console.error(error.message); process.exitCode = 2; });

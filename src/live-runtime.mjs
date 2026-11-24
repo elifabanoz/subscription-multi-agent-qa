@@ -24,8 +24,8 @@ const rawLiveTools = [
     }
   } },
   { name: 'browser_press', description: 'Press a keyboard key on an element selected by CSS.', inputSchema: {
-    type: 'object', additionalProperties: false, required: ['selector', 'key'], properties: {
-      selector: { type: 'string' }, key: { type: 'string' }
+    type: 'object', additionalProperties: false, required: ['selector', 'keyboardKey'], properties: {
+      selector: { type: 'string' }, keyboardKey: { type: 'string' }
     }
   } },
   { name: 'browser_assert_text', description: 'Deterministically assert whether visible page text is present or absent. The check name must exactly match the reported check.', inputSchema: {
@@ -91,6 +91,8 @@ export class LiveQaRuntime {
     this.browserType = browserType;
     this.execute = execute;
     this.browser = null;
+    this.browserLaunch = null;
+    this.closed = false;
     this.pages = new Map();
     this.operationQueues = new Map();
     this.operations = [];
@@ -143,7 +145,12 @@ export class LiveQaRuntime {
   }
   async page(agentId) {
     if (!this.config.browser?.enabled) throw new Error('BROWSER_LIVE_QA_DISABLED');
-    if (!this.browser) this.browser = await this.browserType.launch({ headless: this.config.browser.headless !== false });
+    if (!this.browser) {
+      if (!this.browserLaunch) this.browserLaunch = this.browserType.launch({ headless: this.config.browser.headless !== false })
+        .then(browser => { this.browser = browser; return browser; })
+        .finally(() => { this.browserLaunch = null; });
+      await this.browserLaunch;
+    }
     if (!this.pages.has(agentId)) {
       const context = await this.browser.newContext();
       const allowed = this.allowedOrigins();
@@ -180,14 +187,17 @@ export class LiveQaRuntime {
   }
   async androidUiXml() {
     const remote = `/sdcard/subscription-qa-${process.pid}-${randomUUID()}.xml`;
-    await this.adb(['shell', 'uiautomator', 'dump', remote]);
-    try { return await this.adb(['shell', 'cat', remote]); }
+    try {
+      await this.adb(['shell', 'uiautomator', 'dump', remote]);
+      return await this.adb(['shell', 'cat', remote]);
+    }
     finally { await this.adb(['shell', 'rm', '-f', remote]).catch(() => {}); }
   }
   async assertAndroidAppForeground() {
     const output = await this.adb(['shell', 'dumpsys', 'window', 'windows']);
     const focused = output.split(/\r?\n/).filter(line => /mCurrentFocus|mFocusedApp/.test(line)).join('\n');
-    if (!focused.includes(this.config.android.package)) throw new Error('ANDROID_APP_NOT_FOREGROUND');
+    const escaped = this.config.android.package.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    if (!new RegExp(`(?:^|[\\s{])${escaped}/`).test(focused)) throw new Error('ANDROID_APP_NOT_FOREGROUND');
   }
   selector(value) {
     if (!bounded(value, 500)) throw new Error('INVALID_SELECTOR');
@@ -215,6 +225,7 @@ export class LiveQaRuntime {
     return join(directory, `${agentId}-${fileName(name)}`);
   }
   call(agentId, name, args = {}) {
+    if (this.closed) return Promise.reject(new Error('LIVE_QA_CLOSED'));
     const queueKey = name.startsWith('android_') ? 'android-device' : `browser:${agentId}`;
     const previous = this.operationQueues.get(queueKey) ?? Promise.resolve();
     const operation = previous.catch(() => {}).then(() => this.performCall(agentId, name, args));
@@ -273,8 +284,8 @@ export class LiveQaRuntime {
         if (!bounded(args.value, 500)) throw new Error('INVALID_SELECT_VALUE');
         await locator.selectOption(args.value, { timeout: 10000 });
       } else if (name === 'browser_press') {
-        if (!bounded(args.key, 80)) throw new Error('INVALID_KEY');
-        await locator.press(args.key, { timeout: 10000 });
+        if (!bounded(args.keyboardKey, 80)) throw new Error('INVALID_KEY');
+        await locator.press(args.keyboardKey, { timeout: 10000 });
       } else throw new Error('UNKNOWN_LIVE_TOOL');
       this.assertPageAllowed(page);
       return this.record(agentId, name, { url: page.url() });
@@ -335,6 +346,8 @@ export class LiveQaRuntime {
     throw new Error('UNKNOWN_LIVE_TOOL');
   }
   async close() {
+    this.closed = true;
+    await Promise.allSettled([...this.operationQueues.values()]);
     for (const { context } of this.pages.values()) await context.close().catch(() => {});
     this.pages.clear();
     if (this.browser) await this.browser.close().catch(() => {});

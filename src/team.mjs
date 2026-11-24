@@ -163,6 +163,7 @@ export async function scheduleTeam(config, bus, execute, { onChange = async () =
                 const result = outcome.result;
                 if (!['done', 'waiting'].includes(result?.decision)) throw new Error('Invalid decision');
                 state.result = result;
+                state.evidenceIndependentlyVerified = Boolean(outcome.evidenceIndependentlyVerified);
                 const waiting = bus.outstanding(task.id).length > 0;
                 // A responder may be waiting for its primary prerequisites rather than a reply.
                 // Keep it schedulable when those prerequisites finish, including mid-turn races.
@@ -240,7 +241,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     type: 'live.tool', timestamp: operation.timestamp, agentId: operation.agentId,
     tool: operation.tool, artifact: operation.artifact ? operation.artifact.split(/[\\/]/).at(-1) : null
   }) });
-  record = { version: '0.3.10', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
+  record = { version: '0.4.0', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
     liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits,
     taskDefinitions: config.tasks.map(task => ({ id: task.id, provider: task.provider, role: task.role ?? null, focus: task.focus })),
@@ -261,6 +262,10 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
   const persist = async states => {
     record.tasks = states; record.messages = bus.messages;
     record.live = runtime.summary(); record.liveUiTestsExecuted = record.live.operations.length > 0;
+    const runtimeClaimStates = Object.values(states).filter(state =>
+      state.result?.checks?.some(check => ['passed', 'failed'].includes(check.status)));
+    record.evidenceIndependentlyVerified = runtimeClaimStates.length > 0 &&
+      runtimeClaimStates.every(state => state.evidenceIndependentlyVerified === true);
     await writeFile(join(out, 'report.json.tmp'), JSON.stringify(record, null, 2), { mode: 0o600 });
     await rename(join(out, 'report.json.tmp'), join(out, 'report.json'));
     dashboard.update(record);
@@ -282,10 +287,11 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
         if (execution.aborted || execution.timedOut || execution.overflow || execution.code !== 0)
           return executionFailure(task.provider, execution);
         try {
-          const liveEvidence = new Set([...runtime.evidenceIds(task.id)].filter(id => !evidenceBeforeTurn.has(id)));
+          const liveEvidence = new Map([...runtime.evidenceFor(task.id)].filter(([id]) => !evidenceBeforeTurn.has(id)));
           const result = parseOutput(task.provider, execution.stdout, { liveEvidence });
           if (!['done', 'waiting'].includes(result.decision)) throw new Error();
-          return { state: 'completed', result };
+          return { state: 'completed', result, evidenceIndependentlyVerified:
+            result.checks.some(check => ['passed', 'failed'].includes(check.status)) };
         } catch { return executionFailure(task.provider, execution, 'INVALID_OR_FAILED_PROVIDER_RESULT'); }
       } finally { bus.revokeToken(token); }
     }, { onChange: persist, signal });

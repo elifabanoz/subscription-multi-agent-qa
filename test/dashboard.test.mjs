@@ -29,6 +29,7 @@ test('dashboard snapshot exposes explicit collaboration data without task histor
     label: '1 message · 2/20 budget · 1 reply reserved · 20 sends/agent'
   });
   assert.equal(snapshot.operations[0].artifact, 'screen.png');
+  assert.equal(snapshot.operations[0].verification, null);
   assert.equal(snapshot.activity[0].from, 'frontend');
 });
 

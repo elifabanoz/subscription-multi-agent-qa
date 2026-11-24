@@ -221,7 +221,7 @@ export function argumentsFor(provider, schemaPath) {
     '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--max-turns', '35'];
 }
 
-export function parseOutput(provider, stdout, { liveEvidence = new Set() } = {}) {
+export function parseOutput(provider, stdout, { liveEvidence = new Map() } = {}) {
   let result;
   if (provider === 'claude') {
     const envelope = JSON.parse(stdout);
@@ -252,7 +252,12 @@ export function parseOutput(provider, stdout, { liveEvidence = new Set() } = {})
       const references = check.evidence.flatMap(item => [...item.matchAll(/\[live:(live-[0-9]+)\]/g)].map(match => match[1]));
       if (!references.length || references.some(id => !liveEvidence.has(id)) || references.some(id => claimedEvidence.has(id)))
         throw new Error('Live result is not bound to unique runtime evidence from this turn.');
-      for (const id of references) claimedEvidence.add(id);
+      for (const id of references) {
+        const verification = liveEvidence.get(id);
+        if (!verification || verification.checkName !== check.name.trim() || verification.status !== check.status)
+          throw new Error('Live result does not match a deterministic assertion for this check.');
+        claimedEvidence.add(id);
+      }
     }
   }
   return result;
@@ -269,7 +274,8 @@ Role: ${task.role ?? 'cross-role'}. Task: ${task.focus}
 Read implementation and existing tests. Do not infer correctness from comments or tests you did not run.
 Return JSON matching the supplied schema, in English. Cite repo-relative file paths and line numbers in
 evidence. Source observations are NOT passing tests; mark all unexecuted runtime checks not_tested. A passed
-or failed check MUST include the exact [live:live-N] evidence reference returned by a live QA tool used by you.
+or failed check MUST include the exact [live:live-N] evidence reference returned by a browser_assert_* or
+android_assert_* tool used by you, and its check argument must exactly match the reported check name.
 The handoff must describe concrete prerequisites, role transitions and expected behavior for future tests.
 Do not include passwords, tokens, personal data, or actual email verification codes.
 Configured live capabilities: ${JSON.stringify(liveCapabilities)}.

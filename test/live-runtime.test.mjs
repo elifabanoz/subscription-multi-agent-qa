@@ -20,7 +20,7 @@ const page = {
   url() { return this.current; },
   async title() { return 'Fixture'; },
   locator() { return locator; },
-  async screenshot() {}
+  async screenshot(options) { this.screenshotOptions = options; }
 };
 const browserType = { async launch() { return {
   async newContext() { return { async route() {}, async newPage() { return page; }, async close() {} }; },
@@ -65,6 +65,15 @@ test('browser and Android tools produce agent-bound evidence', async t => {
   assert.match(opened.evidenceRef, /^\[live:live-[0-9]+\]$/);
   const snapshot = await runtime.call('qa', 'browser_snapshot', {});
   assert.match(snapshot.text, /Dashboard/);
+  const textAssertion = await runtime.call('qa', 'browser_assert_text', { check: 'Dashboard visible', text: 'Dashboard' });
+  assert.equal(textAssertion.assertionStatus, 'passed');
+  const urlAssertion = await runtime.call('qa', 'browser_assert_url', { check: 'Login URL', path: '/login' });
+  assert.equal(urlAssertion.assertionStatus, 'passed');
+  const failedAssertion = await runtime.call('qa', 'browser_assert_text', { check: 'Error shown', text: 'Missing text' });
+  assert.equal(failedAssertion.assertionStatus, 'failed');
+  assert.deepEqual(runtime.evidenceFor('qa').get('live-3'), {
+    checkName: 'Dashboard visible', status: 'passed', kind: 'text_present'
+  });
   await assert.rejects(() => runtime.call('qa', 'browser_open', { path: 'https://example.com' }), /NOT_ALLOWED/);
 
   const devices = await runtime.call('qa', 'android_devices', {});
@@ -74,6 +83,16 @@ test('browser and Android tools produce agent-bound evidence', async t => {
   await assert.rejects(() => runtime.call('qa', 'android_input_text', { text: 'bad;command' }), /NOT_SAFE/);
   assert.ok(runtime.evidenceIds('qa').size >= 5);
   assert.ok(executed.some(args => args.includes('monkey')));
+});
+
+test('browser screenshots mask editable fields', async () => {
+  page.current = 'http://127.0.0.1:3000/login';
+  page.screenshotOptions = null;
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-mask', { browserType, execute: async () => ({ code: 0, stdout: 'ok', stderr: '' }) });
+  await runtime.call('qa', 'browser_screenshot', { name: 'masked' });
+  assert.equal(page.screenshotOptions.maskColor, '#000000');
+  assert.equal(page.screenshotOptions.mask.length, 1);
+  await runtime.close();
 });
 
 test('browser evidence denies non-http schemes and foreign origins by default', async t => {
@@ -123,8 +142,11 @@ test('passed and failed claims require evidence created by that agent', () => {
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(report) } }),
     JSON.stringify({ type: 'turn.completed' })
   ].join('\n');
-  assert.deepEqual(parseOutput('codex', output, { liveEvidence: new Set(['live-2']) }), report);
-  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Set(['live-9']) }), /runtime evidence/i);
+  const matching = new Map([['live-2', { checkName: 'Login', status: 'passed', kind: 'text_present' }]]);
+  assert.deepEqual(parseOutput('codex', output, { liveEvidence: matching }), report);
+  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-9', { checkName: 'Login', status: 'passed' }]]) }), /runtime evidence/i);
+  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Other', status: 'passed' }]]) }), /deterministic assertion/i);
+  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Login', status: 'failed' }]]) }), /deterministic assertion/i);
 
   const mixedOwnership = structuredClone(report);
   mixedOwnership.checks[0].evidence[0] += ' plus foreign evidence [live:live-7]';
@@ -132,7 +154,7 @@ test('passed and failed claims require evidence created by that agent', () => {
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(mixedOwnership) } }),
     JSON.stringify({ type: 'turn.completed' })
   ].join('\n');
-  assert.throws(() => parseOutput('codex', mixedOutput, { liveEvidence: new Set(['live-2']) }), /unique runtime evidence/i);
+  assert.throws(() => parseOutput('codex', mixedOutput, { liveEvidence: matching }), /unique runtime evidence/i);
 
   const reused = structuredClone(report);
   reused.checks.push({ name: 'Other feature', status: 'failed', evidence: ['Reused the same operation [live:live-2]'] });
@@ -140,5 +162,5 @@ test('passed and failed claims require evidence created by that agent', () => {
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(reused) } }),
     JSON.stringify({ type: 'turn.completed' })
   ].join('\n');
-  assert.throws(() => parseOutput('codex', reusedOutput, { liveEvidence: new Set(['live-2']) }), /unique runtime evidence/i);
+  assert.throws(() => parseOutput('codex', reusedOutput, { liveEvidence: matching }), /unique runtime evidence/i);
 });

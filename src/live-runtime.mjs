@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { chromium } from 'playwright';
 import { runProcess } from './core.mjs';
 
@@ -27,12 +28,27 @@ const rawLiveTools = [
       selector: { type: 'string' }, key: { type: 'string' }
     }
   } },
+  { name: 'browser_assert_text', description: 'Deterministically assert whether visible page text is present or absent. The check name must exactly match the reported check.', inputSchema: {
+    type: 'object', additionalProperties: false, required: ['check', 'text'], properties: {
+      check: { type: 'string' }, text: { type: 'string' }, present: { type: 'boolean' }
+    }
+  } },
+  { name: 'browser_assert_url', description: 'Deterministically assert the current URL against a configured-origin path. The check name must exactly match the reported check.', inputSchema: {
+    type: 'object', additionalProperties: false, required: ['check', 'path'], properties: {
+      check: { type: 'string' }, path: { type: 'string' }
+    }
+  } },
   { name: 'browser_screenshot', description: 'Save a full-page PNG in the run evidence directory.', inputSchema: {
     type: 'object', additionalProperties: false, required: ['name'], properties: { name: { type: 'string' } }
   } },
   { name: 'android_devices', description: 'List Android devices and emulators visible to the configured adb command.', inputSchema: empty },
   { name: 'android_start_app', description: 'Start the configured Android package on the selected device.', inputSchema: empty },
   { name: 'android_dump_ui', description: 'Read the current Android UI hierarchy from the selected device.', inputSchema: empty },
+  { name: 'android_assert_text', description: 'Deterministically assert whether Android UI text is present or absent. The check name must exactly match the reported check.', inputSchema: {
+    type: 'object', additionalProperties: false, required: ['check', 'text'], properties: {
+      check: { type: 'string' }, text: { type: 'string' }, present: { type: 'boolean' }
+    }
+  } },
   { name: 'android_tap', description: 'Tap an Android screen coordinate.', inputSchema: {
     type: 'object', additionalProperties: false, required: ['x', 'y'], properties: {
       x: { type: 'integer', minimum: 0, maximum: 10000 }, y: { type: 'integer', minimum: 0, maximum: 10000 }
@@ -86,6 +102,9 @@ export class LiveQaRuntime {
   evidenceIds(agentId) {
     return new Set(this.operations.filter(item => item.agentId === agentId).map(item => item.id));
   }
+  evidenceFor(agentId) {
+    return new Map(this.operations.filter(item => item.agentId === agentId).map(item => [item.id, item.verification ?? null]));
+  }
   summary() {
     return { capabilities: this.capabilities(), operations: this.operations.map(item => ({ ...item })) };
   }
@@ -115,7 +134,8 @@ export class LiveQaRuntime {
     return result;
   }
   record(agentId, tool, data = {}) {
-    const item = { id: `live-${++this.sequence}`, agentId, tool, timestamp: new Date().toISOString(), artifact: data.artifact ?? null };
+    const item = { id: `live-${++this.sequence}`, agentId, tool, timestamp: new Date().toISOString(), artifact: data.artifact ?? null,
+      verification: data.verification ?? null };
     this.operations.push(item);
     this.onOperation({ ...item });
     return { evidenceRef: `[live:${item.id}]`, ...data };
@@ -152,6 +172,16 @@ export class LiveQaRuntime {
     const current = new URL(page.url());
     if (!['http:', 'https:'].includes(current.protocol) || !this.allowedOrigins().has(current.origin))
       throw new Error('BROWSER_REDIRECT_OR_NAVIGATION_NOT_ALLOWED');
+  }
+  verification(checkName, status, kind) {
+    if (!bounded(checkName, 200)) throw new Error('INVALID_CHECK_NAME');
+    return { checkName: checkName.trim(), status, kind };
+  }
+  async androidUiXml() {
+    const remote = `/sdcard/subscription-qa-${process.pid}-${randomUUID()}.xml`;
+    await this.adb(['shell', 'uiautomator', 'dump', remote]);
+    try { return await this.adb(['shell', 'cat', remote]); }
+    finally { await this.adb(['shell', 'rm', '-f', remote]).catch(() => {}); }
   }
   selector(value) {
     if (!bounded(value, 500)) throw new Error('INVALID_SELECTOR');
@@ -192,13 +222,30 @@ export class LiveQaRuntime {
         const text = (await page.locator('body').innerText({ timeout: 10000 })).slice(0, 20000);
         const controls = await page.locator('a,button,input,select,textarea,[role]').evaluateAll(nodes => nodes.slice(0, 100).map(node => ({
           tag: node.tagName.toLowerCase(), role: node.getAttribute('role'), type: node.getAttribute('type'),
-          name: node.getAttribute('aria-label') || node.getAttribute('name'), text: (node.innerText || node.value || '').slice(0, 200)
+          name: node.getAttribute('aria-label') || node.getAttribute('name'), text: (node.innerText || '').slice(0, 200)
         })));
         return this.record(agentId, name, { url: page.url(), title: await page.title(), text, controls });
       }
+      if (name === 'browser_assert_text') {
+        if (!bounded(args.text, 1000)) throw new Error('INVALID_ASSERTION_TEXT');
+        const visibleText = await page.locator('body').innerText({ timeout: 10000 });
+        const matched = visibleText.includes(args.text);
+        const passed = args.present === false ? !matched : matched;
+        const status = passed ? 'passed' : 'failed';
+        return this.record(agentId, name, { assertionStatus: status,
+          verification: this.verification(args.check, status, args.present === false ? 'text_absent' : 'text_present') });
+      }
+      if (name === 'browser_assert_url') {
+        const expected = this.target(args.path);
+        const passed = page.url() === expected;
+        const status = passed ? 'passed' : 'failed';
+        return this.record(agentId, name, { assertionStatus: status,
+          verification: this.verification(args.check, status, 'url_equals') });
+      }
       if (name === 'browser_screenshot') {
         const artifact = await this.artifactPath(agentId, args.name);
-        await page.screenshot({ path: artifact, fullPage: true });
+        await page.screenshot({ path: artifact, fullPage: true,
+          mask: [page.locator('input,textarea,[contenteditable="true"]')], maskColor: '#000000' });
         return this.record(agentId, name, { artifact, url: page.url() });
       }
       const locator = page.locator(this.selector(args.selector)).first();
@@ -228,11 +275,17 @@ export class LiveQaRuntime {
       return this.record(agentId, name, { package: packageName, activity: activity ?? null });
     }
     if (name === 'android_dump_ui') {
-      const remote = `/sdcard/subscription-qa-${process.pid}.xml`;
-      await this.adb(['shell', 'uiautomator', 'dump', remote]);
-      const xml = await this.adb(['shell', 'cat', remote]);
-      await this.adb(['shell', 'rm', '-f', remote]).catch(() => {});
+      const xml = await this.androidUiXml();
       return this.record(agentId, name, { xml: xml.slice(0, 50000) });
+    }
+    if (name === 'android_assert_text') {
+      if (!bounded(args.text, 1000)) throw new Error('INVALID_ASSERTION_TEXT');
+      const xml = await this.androidUiXml();
+      const matched = xml.includes(args.text);
+      const passed = args.present === false ? !matched : matched;
+      const status = passed ? 'passed' : 'failed';
+      return this.record(agentId, name, { assertionStatus: status,
+        verification: this.verification(args.check, status, args.present === false ? 'text_absent' : 'text_present') });
     }
     if (name === 'android_tap') {
       if (!integer(args.x, 0, 10000) || !integer(args.y, 0, 10000)) throw new Error('INVALID_ANDROID_COORDINATE');

@@ -36,7 +36,7 @@ const rawLiveTools = [
   } },
   { name: 'browser_assert_url', description: 'Deterministically assert the current URL against a configured-origin path. The check name must exactly match the reported check.', inputSchema: {
     type: 'object', additionalProperties: false, required: ['check', 'path'], properties: {
-      check: { type: 'string' }, path: { type: 'string' }
+      check: { type: 'string' }, path: { type: 'string' }, queryMode: { type: 'string', enum: ['exact', 'ignore'] }
     }
   } },
   { name: 'browser_screenshot', description: 'Save a full-page PNG in the run evidence directory.', inputSchema: {
@@ -274,10 +274,14 @@ export class LiveQaRuntime {
       }
       if (name === 'browser_assert_url') {
         const expected = this.target(args.path);
-        const passed = page.url() === expected;
+        const actualUrl = new URL(page.url());
+        const expectedUrl = new URL(expected);
+        const passed = args.queryMode === 'ignore' ?
+          actualUrl.origin === expectedUrl.origin && actualUrl.pathname === expectedUrl.pathname && actualUrl.hash === expectedUrl.hash :
+          actualUrl.href === expectedUrl.href;
         const status = passed ? 'passed' : 'failed';
         return this.record(agentId, name, { assertionStatus: status,
-          verification: this.verification(args.check, status, 'url_equals') });
+          verification: this.verification(args.check, status, args.queryMode === 'ignore' ? 'url_equals_ignoring_query' : 'url_equals') });
       }
       if (name === 'browser_screenshot') {
         const artifact = await this.artifactPath(agentId, args.name);

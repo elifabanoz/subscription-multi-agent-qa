@@ -73,6 +73,11 @@ test('browser and Android tools produce agent-bound evidence', async t => {
   assert.equal(textAssertion.assertionStatus, 'passed');
   const urlAssertion = await runtime.call('qa', 'browser_assert_url', { check: 'Login URL', path: '/login' });
   assert.equal(urlAssertion.assertionStatus, 'passed');
+  page.current = 'http://127.0.0.1:3000/login?next=%2Fdashboard';
+  const ignoreQuery = await runtime.call('qa', 'browser_assert_url', { check: 'Login path', path: '/login', queryMode: 'ignore' });
+  assert.equal(ignoreQuery.assertionStatus, 'passed');
+  const exactQuery = await runtime.call('qa', 'browser_assert_url', { check: 'Exact login URL', path: '/login' });
+  assert.equal(exactQuery.assertionStatus, 'failed');
   const failedAssertion = await runtime.call('qa', 'browser_assert_text', { check: 'Error shown', text: 'Missing text' });
   assert.equal(failedAssertion.assertionStatus, 'failed');
   const textAssertionId = textAssertion.evidenceRef.match(/\[live:(live-[0-9]+)\]/)[1];

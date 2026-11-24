@@ -83,6 +83,8 @@ test('message schemas and runtime reject malformed or oversized fields consisten
   const press = teamTools.find(item => item.name === 'browser_press').inputSchema;
   assert.ok(press.required.includes('keyboardKey'));
   assert.ok(press.required.includes('key'));
+  const urlAssertion = teamTools.find(item => item.name === 'browser_assert_url').inputSchema;
+  assert.deepEqual(urlAssertion.properties.queryMode.enum, ['exact', 'ignore']);
   assert.equal(brokerTimeoutMs('browser_open'), 120000);
   assert.equal(brokerTimeoutMs('receive_messages'), 15000);
 });

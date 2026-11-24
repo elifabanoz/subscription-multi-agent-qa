@@ -80,6 +80,15 @@ export const liveTools = rawLiveTools.map(tool => ({ ...tool, inputSchema: {
 
 const bounded = (value, max = 500) => typeof value === 'string' && value.length > 0 && value.length <= max;
 const integer = (value, min, max) => Number.isInteger(value) && value >= min && value <= max;
+const decodeXmlEntities = value => value.replace(/&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-f]+);/gi, (entity, code) => {
+  const named = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+  const normalized = code.toLowerCase();
+  if (named[normalized]) return named[normalized];
+  const point = normalized.startsWith('#x') ? Number.parseInt(normalized.slice(2), 16) : Number.parseInt(normalized.slice(1), 10);
+  return Number.isInteger(point) && point >= 0 && point <= 0x10ffff ? String.fromCodePoint(point) : entity;
+});
+const androidVisibleText = xml => [...xml.matchAll(/\b(?:text|content-desc)="([^"]*)"/g)]
+  .map(match => decodeXmlEntities(match[1])).filter(Boolean).join('\n');
 const fileName = value => {
   if (!bounded(value, 80) || !/^[a-zA-Z0-9_.-]+$/.test(value)) throw new Error('INVALID_ARTIFACT_NAME');
   return value.endsWith('.png') ? value : `${value}.png`;
@@ -323,7 +332,7 @@ export class LiveQaRuntime {
     if (name === 'android_assert_text') {
       if (!bounded(args.text, 1000)) throw new Error('INVALID_ASSERTION_TEXT');
       const xml = await this.androidUiXml();
-      const matched = xml.includes(args.text);
+      const matched = androidVisibleText(xml).includes(args.text);
       const passed = args.present === false ? !matched : matched;
       const status = passed ? 'passed' : 'failed';
       return this.record(agentId, name, { assertionStatus: status,

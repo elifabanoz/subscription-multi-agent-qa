@@ -232,6 +232,22 @@ test('Android UI dump cleanup runs even when uiautomator dump fails', async () =
   assert.ok(calls.some(args => args.includes('rm') && args.includes('-f')));
 });
 
+test('Android text assertions inspect decoded visible labels, not raw resource identifiers', async () => {
+  const xml = '<?xml version="1.0"?><hierarchy><node text="Welcome &amp; learn" resource-id="com.example.app:id/hidden_target" content-desc="Continue &#x2192;"/></hierarchy>';
+  const execute = async (_command, args) => {
+    if (args.includes('dumpsys')) return { code: 0, stdout: 'mCurrentFocus=Window{ com.example.app/.MainActivity }', stderr: '' };
+    if (args.includes('cat')) return { code: 0, stdout: xml, stderr: '' };
+    return { code: 0, stdout: '', stderr: '' };
+  };
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-visible-text', { browserType, execute });
+  const text = await runtime.call('qa', 'android_assert_text', { check: 'Welcome label', text: 'Welcome & learn' });
+  const description = await runtime.call('qa', 'android_assert_text', { check: 'Continue action', text: 'Continue →' });
+  const resourceId = await runtime.call('qa', 'android_assert_text', { check: 'Resource identifier hidden', text: 'hidden_target' });
+  assert.equal(text.assertionStatus, 'passed');
+  assert.equal(description.assertionStatus, 'passed');
+  assert.equal(resourceId.assertionStatus, 'failed');
+});
+
 test('passed and failed claims require evidence created by that agent', () => {
   const report = { summary: 'Live check', handoff: 'None', checks: [
     { name: 'Login', status: 'passed', evidence: ['Observed dashboard [live:live-2]'] }

@@ -257,7 +257,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     type: 'live.tool', timestamp: operation.timestamp, agentId: operation.agentId,
     tool: operation.tool, artifact: operation.artifact ? operation.artifact.split(/[\\/]/).at(-1) : null
   }) });
-  record = { version: '0.5.1', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
+  record = { version: '0.5.2', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
     liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits,
     taskDefinitions: config.tasks.map(task => ({ id: task.id, provider: task.provider, role: task.role ?? null, focus: task.focus })),
@@ -292,7 +292,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     const outcome = await scheduleTeam(config, bus, async (task, context) => {
       const current = await doctor(config, runProcess, { signal: context.signal, activeSession: true });
       if (!current[task.provider].ready) return { state: 'failed', reason: 'SUBSCRIPTION_LOGIN_NOT_CONFIRMED' };
-      const token = bus.issueToken(task.id);
+      const token = bus.issueToken(task.id, enabledToolNames);
       const brokerEnv = { SUBSCRIPTION_QA_BUS_URL: endpoint, SUBSCRIPTION_QA_BUS_TOKEN: token,
         SUBSCRIPTION_QA_TOOL_NAMES: JSON.stringify(enabledToolNames) };
       const evidenceBeforeTurn = runtime.evidenceIds(task.id);

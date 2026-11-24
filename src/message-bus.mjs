@@ -31,6 +31,7 @@ export const teamTools = [
   { name: 'get_team_status', description: 'Read the shared task board, teammate identities, states and turn/message budgets.', inputSchema: { type: 'object', properties: {}, additionalProperties: false } },
   ...liveTools
 ];
+const teamToolNames = new Set(teamTools.map(tool => tool.name));
 const liveToolNames = new Set(liveTools.map(tool => tool.name));
 export const brokerTimeoutMs = name => liveToolNames.has(name) ? 120000 : 15000;
 
@@ -56,9 +57,13 @@ export class MessageBus {
     this.onEvent(event);
     this.events.emit('event', event);
   }
-  issueToken(agentId) {
+  issueToken(agentId, allowedTools = teamTools.map(tool => tool.name)) {
     if (!this.tasks.has(agentId)) throw new Error('UNKNOWN_AGENT');
-    const token = randomBytes(32).toString('hex'); this.tokens.set(token, agentId); return token;
+    if (!Array.isArray(allowedTools) || allowedTools.some(name => typeof name !== 'string' || !teamToolNames.has(name)) ||
+      new Set(allowedTools).size !== allowedTools.length) throw new Error('INVALID_TOOL_CAPABILITY');
+    const token = randomBytes(32).toString('hex');
+    this.tokens.set(token, { agentId, allowedTools: new Set(allowedTools) });
+    return token;
   }
   revokeToken(token) { this.tokens.delete(token); }
   pending(agentId) { return this.messages.filter(m => m.to === agentId && !m.acknowledged); }
@@ -152,8 +157,9 @@ export class MessageBus {
       res.on('close', () => { if (!res.writableEnded) controller.abort(); });
       // Only an internal loopback bridge speaks to this endpoint. Browser origins are refused.
       const token = (req.headers.authorization ?? '').replace(/^Bearer /, '');
-      const agentId = this.tokens.get(token);
-      if (req.headers.origin || !agentId) { res.writeHead(403); res.end('{"error":"FORBIDDEN"}'); return; }
+      const capability = this.tokens.get(token);
+      if (req.headers.origin || !capability) { res.writeHead(403); res.end('{"error":"FORBIDDEN"}'); return; }
+      const { agentId } = capability;
       if (req.method !== 'POST' || req.url !== '/tool') { res.writeHead(404); res.end('{}'); return; }
       try {
         let body = '';
@@ -161,8 +167,9 @@ export class MessageBus {
           body += chunk;
           if (body.length > 20000) { res.writeHead(413); res.end('{"error":"REQUEST_TOO_LARGE"}'); return; }
         }
-        if (this.tokens.get(token) !== agentId) { res.writeHead(403); res.end('{"error":"FORBIDDEN"}'); return; }
+        if (this.tokens.get(token) !== capability) { res.writeHead(403); res.end('{"error":"FORBIDDEN"}'); return; }
         const request = JSON.parse(body);
+        if (!capability.allowedTools.has(request.name)) { res.writeHead(403); res.end('{"error":"FORBIDDEN"}'); return; }
         const result = await this.call(agentId, request.name, request.arguments, { signal: controller.signal });
         if (res.destroyed) return;
         res.end(JSON.stringify({ result }));

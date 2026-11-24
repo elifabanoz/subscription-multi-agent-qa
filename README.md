@@ -135,7 +135,7 @@ switches accounts, falls back to API billing or retries indefinitely.
 - Browser sessions are isolated per agent, direct navigation is origin-allowlisted, and agents can discard cookies/local
   storage with `browser_reset_context` before a fresh authentication scenario.
 - Android text input rejects shell metacharacters; ADB is invoked without a shell.
-- The mailbox binds to `127.0.0.1` and uses per-agent temporary capability tokens.
+- The mailbox binds to `127.0.0.1` and uses temporary capability tokens scoped to one agent and its enabled tools.
 - Mailbox fields are length-bounded and idempotent; fair per-agent quotas prevent one worker from consuming the team budget,
   while every accepted question or delegated task reserves capacity for its required reply.
 - The dashboard binds to `127.0.0.1`, uses an unpersisted random URL token and loads no external assets.

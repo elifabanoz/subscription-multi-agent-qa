@@ -154,6 +154,9 @@ test('broker refuses unauthorized/browser calls and binds identity to capability
   const bus = new MessageBus(tasks);
   const url = await bus.listen(); t.after(() => bus.close());
   const token = bus.issueToken('student');
+  const scopedToken = bus.issueToken('parent', ['receive_messages']);
+  assert.throws(() => bus.issueToken('parent', ['receive_messages', 'receive_messages']), /INVALID_TOOL_CAPABILITY/);
+  assert.throws(() => bus.issueToken('parent', ['not_a_tool']), /INVALID_TOOL_CAPABILITY/);
   const post = (headers = {}, payload = { name: 'receive_messages', arguments: {} }) => fetch(url, {
     method: 'POST', headers, body: JSON.stringify(payload)
   });
@@ -164,6 +167,12 @@ test('broker refuses unauthorized/browser calls and binds identity to capability
   } });
   assert.equal(sent.status, 200);
   assert.equal((await sent.json()).result.from, 'student');
+  assert.equal((await post({ Authorization: `Bearer ${scopedToken}` })).status, 200);
+  const denied = await post({ Authorization: `Bearer ${scopedToken}` }, { name: 'send_message', arguments: {
+    to: 'student', kind: 'finding', scenarioId: 'scope', body: 'Denied fixture', key: 'denied'
+  } });
+  assert.equal(denied.status, 403);
+  assert.deepEqual(await denied.json(), { error: 'FORBIDDEN' });
   bus.revokeToken(token);
   assert.equal((await post({ Authorization: `Bearer ${token}` })).status, 403);
 });

@@ -14,9 +14,9 @@ const sample = {
     { id: 'backend-api', provider: 'codex', role: 'API QA', focus: 'Check ownership, validation and the client/server contract.' }
   ],
   tasks: {
-    inventory: { provider: 'codex', state: 'completed', turns: 1, result: { summary: 'Architecture and trust boundaries mapped.', checks: [{ name: 'Inventory' }] } },
+    inventory: { provider: 'codex', state: 'completed', turns: 1, result: { summary: 'Architecture and trust boundaries mapped.', checks: [{ name: 'Inventory', status: 'source_observation' }] } },
     'frontend-client': { provider: 'claude', state: 'running', turns: 2, result: { summary: 'Browser and Android flows are being checked.', checks: [] } },
-    'backend-api': { provider: 'codex', state: 'waiting', turns: 2, result: { summary: 'Waiting for the client contract answer.', checks: [{ name: 'Ownership' }] } }
+    'backend-api': { provider: 'codex', state: 'waiting', turns: 2, result: { summary: 'Waiting for the client contract answer.', checks: [{ name: 'Ownership', status: 'not_tested' }] } }
   },
   messages: [
     { id: 'm1', from: 'backend-api', to: 'frontend-client', kind: 'question', scenarioId: 'session-expiry', body: 'Which client state is shown after a 401 response?', createdAt: new Date(Date.now() - 9000).toISOString(), acknowledged: true, replyId: 'm2' },
@@ -45,6 +45,7 @@ try {
   assert.equal(await page.locator('.agent').count(), 3);
   assert.equal(await page.locator('.chat-message').count(), 2);
   assert.equal(await page.locator('.reply-context').count(), 1);
+  assert.equal(await page.locator('.check-badge').count(), 2);
   assert.match(await page.locator('.reply-context').textContent(), /Reply to backend-api/);
   assert.equal(await page.locator('#conversationMeta').textContent(), '2 messages · 2/100 budget · 33 sends/agent');
   await page.screenshot({ path: screenshot, fullPage: true });

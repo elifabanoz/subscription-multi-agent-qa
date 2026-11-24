@@ -57,6 +57,34 @@ test('dashboard outcome exposes failure, interruption and follow-up reasons', ()
   assert.equal(malformedActivity.activity[0].type, 'unknown');
 });
 
+test('dashboard never reports success when checks failed, are suspected or were not executed', () => {
+  const finished = { ...record, finishedAt: '2026-01-01T01:00:00Z' };
+  const withChecks = checks => dashboardSnapshot({ ...finished, tasks: {
+    frontend: { provider: 'claude', state: 'completed', turns: 2, result: { summary: 'Done', checks } }
+  } });
+
+  const failed = withChecks([{ name: 'Login', status: 'failed', evidence: ['[live:live-1]'] }]);
+  assert.equal(failed.outcome.status, 'issues');
+  assert.equal(failed.outcome.label, 'Completed with failed checks');
+  assert.equal(failed.checkSummary.failed, 1);
+
+  const suspected = withChecks([{ name: 'Login', status: 'suspected_issue', evidence: ['src/login.mjs:8'] }]);
+  assert.equal(suspected.outcome.status, 'findings');
+  assert.equal(suspected.outcome.label, 'Review completed with findings');
+
+  const notTested = withChecks([{ name: 'Login', status: 'not_tested', evidence: [] }]);
+  assert.equal(notTested.outcome.status, 'review');
+  assert.equal(notTested.outcome.label, 'Review completed with gaps');
+
+  const sourceOnly = withChecks([{ name: 'Input validation', status: 'source_observation', evidence: ['src/api.mjs:8'] }]);
+  assert.equal(sourceOnly.outcome.status, 'review');
+  assert.equal(sourceOnly.outcome.label, 'Source review completed');
+
+  const passed = withChecks([{ name: 'Login', status: 'passed', evidence: ['[live:live-1]'] }]);
+  assert.equal(passed.outcome.status, 'completed');
+  assert.equal(passed.outcome.label, 'Completed successfully');
+});
+
 test('dashboard is loopback-only, token-scoped and writes a safe static archive', async t => {
   const dashboard = new RunDashboard(record);
   const url = await dashboard.listen();

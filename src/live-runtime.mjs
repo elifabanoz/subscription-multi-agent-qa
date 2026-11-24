@@ -92,6 +92,7 @@ export class LiveQaRuntime {
     this.execute = execute;
     this.browser = null;
     this.pages = new Map();
+    this.operationQueues = new Map();
     this.operations = [];
     this.sequence = 0;
     this.onOperation = onOperation;
@@ -183,6 +184,11 @@ export class LiveQaRuntime {
     try { return await this.adb(['shell', 'cat', remote]); }
     finally { await this.adb(['shell', 'rm', '-f', remote]).catch(() => {}); }
   }
+  async assertAndroidAppForeground() {
+    const output = await this.adb(['shell', 'dumpsys', 'window', 'windows']);
+    const focused = output.split(/\r?\n/).filter(line => /mCurrentFocus|mFocusedApp/.test(line)).join('\n');
+    if (!focused.includes(this.config.android.package)) throw new Error('ANDROID_APP_NOT_FOREGROUND');
+  }
   selector(value) {
     if (!bounded(value, 500)) throw new Error('INVALID_SELECTOR');
     return value;
@@ -208,7 +214,17 @@ export class LiveQaRuntime {
     await mkdir(directory, { recursive: true, mode: 0o700 });
     return join(directory, `${agentId}-${fileName(name)}`);
   }
-  async call(agentId, name, args = {}) {
+  call(agentId, name, args = {}) {
+    const queueKey = name.startsWith('android_') ? 'android-device' : `browser:${agentId}`;
+    const previous = this.operationQueues.get(queueKey) ?? Promise.resolve();
+    const operation = previous.catch(() => {}).then(() => this.performCall(agentId, name, args));
+    this.operationQueues.set(queueKey, operation);
+    operation.finally(() => {
+      if (this.operationQueues.get(queueKey) === operation) this.operationQueues.delete(queueKey);
+    }).catch(() => {});
+    return operation;
+  }
+  async performCall(agentId, name, args = {}) {
     if (name.startsWith('browser_')) {
       const page = await this.page(agentId);
       if (name === 'browser_open') {
@@ -274,6 +290,7 @@ export class LiveQaRuntime {
       else await this.adb(['shell', 'monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1']);
       return this.record(agentId, name, { package: packageName, activity: activity ?? null });
     }
+    if (name.startsWith('android_')) await this.assertAndroidAppForeground();
     if (name === 'android_dump_ui') {
       const xml = await this.androidUiXml();
       return this.record(agentId, name, { xml: xml.slice(0, 50000) });

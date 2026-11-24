@@ -51,7 +51,9 @@ test('browser and Android tools produce agent-bound evidence', async t => {
   const executed = [];
   const execute = async (_command, args) => {
     executed.push(args);
-    return { code: 0, stdout: args.includes('devices') ? 'emulator-5554          device product:sdk\r\n' : 'ok', stderr: '' };
+    const stdout = args.includes('devices') ? 'emulator-5554          device product:sdk\r\n' :
+      args.includes('dumpsys') ? 'mCurrentFocus=Window{ com.example.app/.MainActivity }' : 'ok';
+    return { code: 0, stdout, stderr: '' };
   };
   const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-fixture', { browserType, execute });
   t.after(() => runtime.close());
@@ -124,6 +126,7 @@ test('Android screenshot is captured as binary stdout without host path translat
   const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
   const observed = [];
   const execute = async (_command, args, options) => {
+    if (args.includes('dumpsys')) return { code: 0, stdout: 'mCurrentFocus=Window{ com.example.app/.MainActivity }', stderr: '' };
     assert.ok(args.includes('exec-out'));
     assert.equal(options.binaryStdout, true);
     return { code: 0, stdout: png, stderr: '' };
@@ -132,6 +135,28 @@ test('Android screenshot is captured as binary stdout without host path translat
   const result = await runtime.call('qa', 'android_screenshot', { name: 'screen' });
   assert.deepEqual(await readFile(result.artifact), png);
   assert.deepEqual(observed.map(item => [item.agentId, item.tool]), [['qa', 'android_screenshot']]);
+});
+
+test('Android operations are device-serialized and reject capture outside the configured app', async () => {
+  let active = 0, maxActive = 0;
+  const execute = async (_command, args) => {
+    active += 1; maxActive = Math.max(maxActive, active);
+    await new Promise(resolve => setTimeout(resolve, 5));
+    active -= 1;
+    return { code: 0, stdout: args.includes('dumpsys') ? 'mCurrentFocus=Window{ com.example.app/.MainActivity }' : 'ok', stderr: '' };
+  };
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-serialized', { browserType, execute });
+  await Promise.all([
+    runtime.call('qa', 'android_tap', { x: 10, y: 20 }),
+    runtime.call('other-agent', 'android_tap', { x: 30, y: 40 })
+  ]);
+  assert.equal(maxActive, 1);
+
+  const foreign = new LiveQaRuntime(baseConfig, '/tmp/live-foreign', { browserType, execute: async () => ({
+    code: 0, stdout: 'mCurrentFocus=Window{ com.other.app/.MainActivity }', stderr: ''
+  }) });
+  await assert.rejects(() => foreign.call('qa', 'android_dump_ui', {}), /NOT_FOREGROUND/);
+  assert.equal(foreign.operations.length, 0);
 });
 
 test('passed and failed claims require evidence created by that agent', () => {

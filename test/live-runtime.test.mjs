@@ -33,7 +33,7 @@ const baseConfig = {
   tasks: [{ id: 'qa', provider: 'codex', dependsOn: [], focus: 'Fixture' }],
   live: {
     browser: { enabled: true, baseUrl: 'http://127.0.0.1:3000', allowedOrigins: ['http://127.0.0.1:3000'] },
-    android: { enabled: true, adbCommand: 'adb', serial: 'emulator-5554', package: 'com.example.app' }
+    android: { enabled: true, adbCommand: 'adb', serial: 'emulator-5554', package: 'com.example.app', allowScreenshots: true }
   }
 };
 
@@ -45,6 +45,8 @@ test('live config restricts browser origins and Android identifiers', () => {
   assert.throws(() => validateConfig(packageConfig), /package/i);
   const activityConfig = structuredClone(baseConfig); activityConfig.live.android.activity = 'com.other.app/.MainActivity';
   assert.throws(() => validateConfig(activityConfig), /activity/i);
+  const screenshotConfig = structuredClone(baseConfig); screenshotConfig.live.android.allowScreenshots = 'yes';
+  assert.throws(() => validateConfig(screenshotConfig), /allowScreenshots/i);
 });
 
 test('browser and Android tools produce agent-bound evidence', async t => {
@@ -224,6 +226,17 @@ test('Android screenshot is captured as binary stdout without host path translat
   const result = await runtime.call('qa', 'android_screenshot', { name: 'screen' });
   assert.deepEqual(await readFile(result.artifact), png);
   assert.deepEqual(observed.map(item => [item.agentId, item.tool]), [['qa', 'android_screenshot']]);
+});
+
+test('Android screenshots are default-deny unless explicitly enabled', async () => {
+  const config = structuredClone(baseConfig);
+  config.live.android.allowScreenshots = false;
+  let executed = false;
+  const runtime = new LiveQaRuntime(config, '/tmp/live-screenshot-denied', { browserType, execute: async () => {
+    executed = true; return { code: 0, stdout: '', stderr: '' };
+  } });
+  await assert.rejects(() => runtime.call('qa', 'android_screenshot', { name: 'denied' }), /SCREENSHOTS_NOT_ALLOWED/);
+  assert.equal(executed, false);
 });
 
 test('Android operations are device-serialized and reject capture outside the configured app', async () => {

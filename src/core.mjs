@@ -68,6 +68,8 @@ export function validateConfig(config) {
       throw new Error('live.android.activity must be a component in the configured package.');
     if (android.serial && !/^[a-zA-Z0-9_.:-]+$/.test(android.serial)) throw new Error('Invalid Android serial.');
     if (android.adbCommand && (typeof android.adbCommand !== 'string' || !android.adbCommand.trim())) throw new Error('Invalid adb command.');
+    if (android.allowScreenshots !== undefined && typeof android.allowScreenshots !== 'boolean')
+      throw new Error('live.android.allowScreenshots must be a boolean.');
   }
   return config;
 }

@@ -66,7 +66,7 @@ const rawLiveTools = [
     type: 'object', additionalProperties: false, required: ['text'], properties: { text: { type: 'string' } }
   } },
   { name: 'android_back', description: 'Press the Android back button.', inputSchema: empty },
-  { name: 'android_screenshot', description: 'Save an Android PNG in the run evidence directory.', inputSchema: {
+  { name: 'android_screenshot', description: 'Save an Android PNG in the run evidence directory when live.android.allowScreenshots is explicitly true.', inputSchema: {
     type: 'object', additionalProperties: false, required: ['name'], properties: { name: { type: 'string' } }
   } }
 ];
@@ -328,6 +328,8 @@ export class LiveQaRuntime {
       else await this.adb(['shell', 'monkey', '-p', packageName, '-c', 'android.intent.category.LAUNCHER', '1']);
       return this.record(agentId, name, { package: packageName, activity: activity ?? null });
     }
+    if (name === 'android_screenshot' && this.config.android.allowScreenshots !== true)
+      throw new Error('ANDROID_SCREENSHOTS_NOT_ALLOWED');
     if (name.startsWith('android_')) await this.assertAndroidAppForeground();
     if (name === 'android_dump_ui') {
       const xml = await this.androidUiXml();

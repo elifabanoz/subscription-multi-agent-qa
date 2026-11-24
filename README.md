@@ -82,7 +82,8 @@ Enable only the surfaces you intend to test:
       "adbCommand": "adb",
       "serial": "emulator-5554",
       "package": "com.example.app",
-      "activity": "com.example.app/.MainActivity"
+      "activity": "com.example.app/.MainActivity",
+      "allowScreenshots": false
     }
   }
 }
@@ -91,7 +92,9 @@ Enable only the surfaces you intend to test:
 Browser navigation and network requests are restricted to `allowedOrigins`. Android commands are restricted
 to the configured disposable device. The optional `activity` must belong to `package`; when omitted, the runner
 uses the package launcher intent. Use synthetic test accounts
-and non-production data; taps and back navigation can leave the app on that test device.
+and non-production data; taps and back navigation can leave the app on that test device. Android screenshots are
+not field-masked. They remain disabled unless `allowScreenshots` is explicitly set to `true`; enable them only on
+synthetic, reviewed screens.
 
 ## Run
 

@@ -29,7 +29,8 @@
       "enabled": false,
       "adbCommand": "adb",
       "serial": "emulator-5554",
-      "package": "com.example.app"
+      "package": "com.example.app",
+      "allowScreenshots": false
     }
   },
   "tasks": [

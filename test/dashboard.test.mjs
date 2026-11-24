@@ -54,6 +54,10 @@ test('dashboard outcome exposes failure, interruption and follow-up reasons', ()
   assert.equal(followUp.outcome.status, 'issues');
   assert.equal(followUp.tasks[0].followUpReason, 'TURN_BUDGET_EXHAUSTED');
 
+  const incomplete = dashboardSnapshot({ ...record, finishedAt: '2026-01-01T01:00:00Z' });
+  assert.equal(incomplete.outcome.status, 'issues');
+  assert.equal(incomplete.outcome.label, 'Run ended with incomplete agents');
+
   const malformedActivity = dashboardSnapshot({ ...record, activity: [{}] });
   assert.equal(malformedActivity.activity[0].type, 'unknown');
 });

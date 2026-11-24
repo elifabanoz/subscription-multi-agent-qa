@@ -48,6 +48,9 @@ try {
   assert.equal(await page.locator('.check-badge').count(), 2);
   assert.match(await page.locator('.reply-context').textContent(), /Reply to backend-api/);
   assert.equal(await page.locator('#conversationMeta').textContent(), '2 messages · 2/100 budget · 33 sends/agent');
+  dashboard.update({ ...sample, finishedAt: new Date().toISOString(), stopReason: 'SMOKE_COMPLETE' });
+  await page.waitForFunction(() => document.getElementById('connection')?.textContent === 'Run interrupted');
+  assert.equal(await page.locator('#connection').textContent(), 'Run interrupted');
   await page.screenshot({ path: screenshot, fullPage: true });
   console.log(JSON.stringify({ url, title: await page.title(), agents: await page.locator('.agent').count(),
     messages: await page.locator('.chat-message').count(), activity: await page.locator('.event').count(), screenshot }, null, 2));

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { validateConfig, assertSubscriptionEnvironment, hasSubscriptionAuth, argumentsFor,
-  hasActiveSubscriptionSession, doctor, parseOutput, schedule, runProcess, promptFor } from '../src/core.mjs';
+  hasActiveSubscriptionSession, doctor, parseOutput, schedule, runProcess, promptFor, providerEnvironment } from '../src/core.mjs';
 
 const config = JSON.parse(await readFile(new URL('../qa.config.json', import.meta.url), 'utf8'));
 const result = { summary: 'Kaynak incelemesi', handoff: 'UI henüz çalıştırılmadı.', checks: [
@@ -37,6 +37,19 @@ test('API/environment conflicts are refused without displaying values', () => {
   assert.doesNotThrow(() => assertSubscriptionEnvironment({ PATH: '/bin' }));
   assert.throws(() => assertSubscriptionEnvironment({ OPENAI_API_KEY: 'secret-do-not-print' }), error =>
     error.message.includes('OPENAI_API_KEY') && !error.message.includes('secret-do-not-print'));
+});
+
+test('provider environment keeps runtime and subscription paths but drops unrelated secrets', () => {
+  const environment = providerEnvironment({ PATH: '/bin', HOME: '/home/qa', CODEX_HOME: '/home/qa/.codex',
+    HTTPS_PROXY: 'http://proxy.test', LC_ALL: 'C.UTF-8', DECOY_SECRET: 'must-not-leak', DATABASE_URL: 'private' },
+    { SUBSCRIPTION_QA_BUS_URL: 'http://127.0.0.1/tool', SUBSCRIPTION_QA_BUS_TOKEN: 'token' });
+  assert.equal(environment.PATH, '/bin');
+  assert.equal(environment.CODEX_HOME, '/home/qa/.codex');
+  assert.equal(environment.LC_ALL, 'C.UTF-8');
+  assert.equal(environment.SUBSCRIPTION_QA_BUS_TOKEN, 'token');
+  assert.equal(environment.DECOY_SECRET, undefined);
+  assert.equal(environment.DATABASE_URL, undefined);
+  assert.throws(() => providerEnvironment({}, { UNRELATED: 'no' }), /Unsupported provider environment extra/);
 });
 
 test('auth status must positively identify a subscription', () => {
@@ -81,10 +94,13 @@ test('provider args retain permission checks and subscription-capable modes', ()
   const codex = argumentsFor('codex', '/tmp/result.schema.json');
   const claude = argumentsFor('claude', '/tmp/result.schema.json');
   assert.ok(codex.includes('read-only'));
+  assert.ok(codex.includes('--ephemeral'));
   assert.ok(codex.includes('forced_login_method="chatgpt"'));
   assert.ok(!claude.includes('--bare'));
   assert.ok(!claude.includes('--dangerously-skip-permissions'));
   assert.ok(claude.includes('Read,Glob,Grep'));
+  assert.ok(claude.includes('--restricted'));
+  assert.ok(claude.includes('--no-session-persistence'));
 });
 
 test('native provider output formats normalize to the same report', () => {

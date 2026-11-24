@@ -350,8 +350,12 @@ test('native arguments expose only communication tools alongside source-reading 
   const claude = teamArguments('claude', '/schema.json', '/bridge.mjs', env, { claudeMaxTurns: 90 });
   assert.ok(codex.includes('mcp_servers.qa.required=true'));
   assert.ok(codex.includes('read-only'));
+  assert.ok(codex.includes('--ephemeral'));
   assert.ok(!codex.join(' ').includes(env.SUBSCRIPTION_QA_BUS_TOKEN));
   assert.ok(claude.includes('--strict-mcp-config'));
+  assert.ok(claude.includes('--restricted'));
+  assert.ok(claude.includes('--no-session-persistence'));
+  assert.equal(claude[claude.indexOf('--permission-mode') + 1], 'dontAsk');
   assert.ok(!claude.join(' ').includes(env.SUBSCRIPTION_QA_BUS_TOKEN));
   const mcpConfig = JSON.parse(claude[claude.indexOf('--mcp-config') + 1]);
   assert.equal(mcpConfig.mcpServers.qa.env, undefined);

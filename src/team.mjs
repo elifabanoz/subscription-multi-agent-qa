@@ -1,7 +1,7 @@
 import { mkdir, writeFile, rename } from 'node:fs/promises';
 import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { schema, validateConfig, doctor, runProcess, parseOutput, promptFor } from './core.mjs';
+import { schema, validateConfig, doctor, runProcess, parseOutput, promptFor, providerEnvironment } from './core.mjs';
 import { MessageBus, teamTools } from './message-bus.mjs';
 import { executionFailure } from './diagnostics.mjs';
 import { LiveQaRuntime } from './live-runtime.mjs';
@@ -34,6 +34,7 @@ export function publicActivity(event) {
 export function teamArguments(provider, schemaPath, bridgePath, _brokerEnv, options = {}) {
   const claudeMaxTurns = options.claudeMaxTurns ?? 45;
   if (provider === 'codex') return ['exec', '--json', '--ignore-user-config', '--sandbox', 'read-only',
+    '--ephemeral',
     '-c', 'forced_login_method="chatgpt"',
     '-c', `mcp_servers.qa.command=${JSON.stringify(process.execPath)}`,
     '-c', `mcp_servers.qa.args=${JSON.stringify([bridgePath])}`,
@@ -44,6 +45,8 @@ export function teamArguments(provider, schemaPath, bridgePath, _brokerEnv, opti
     '--output-schema', schemaPath, '-'];
   return ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(teamSchema),
     '--tools', 'Read,Glob,Grep', '--allowedTools', ['Read', 'Glob', 'Grep', ...teamTools.map(t => `mcp__qa__${t.name}`)].join(','),
+    '--restricted', '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
+    '--no-session-persistence', '--disable-slash-commands', '--no-chrome',
     '--strict-mcp-config', '--mcp-config', JSON.stringify({ mcpServers: { qa: { command: process.execPath, args: [bridgePath] } } }),
     '--max-turns', String(claudeMaxTurns)];
 }
@@ -236,7 +239,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     type: 'live.tool', timestamp: operation.timestamp, agentId: operation.agentId,
     tool: operation.tool, artifact: operation.artifact ? operation.artifact.split(/[\\/]/).at(-1) : null
   }) });
-  record = { version: '0.3.8', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
+  record = { version: '0.3.9', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
     liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits,
     taskDefinitions: config.tasks.map(task => ({ id: task.id, provider: task.provider, role: task.role ?? null, focus: task.focus })),
@@ -273,7 +276,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
         const execution = await runProcess(config.providers[task.provider].command,
           teamArguments(task.provider, schemaPath, bridge, brokerEnv, { claudeMaxTurns: limits.claudeMaxTurns }), {
             cwd: directory, timeoutMs: config.timeoutMs, input: teamPrompt(task, context),
-            env: { ...process.env, ...brokerEnv }, signal: context.signal
+            env: providerEnvironment(process.env, brokerEnv), signal: context.signal
           });
         if (execution.aborted || execution.timedOut || execution.overflow || execution.code !== 0)
           return executionFailure(task.provider, execution);

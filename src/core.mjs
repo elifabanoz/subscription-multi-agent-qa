@@ -81,6 +81,26 @@ export function assertSubscriptionEnvironment(env) {
   if (present.length) throw new Error(`Subscription mode: remove competing provider settings from this terminal: ${present.join(', ')}`);
 }
 
+const providerEnvironmentNames = new Set([
+  'PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'PROGRAMDATA',
+  'SYSTEMROOT', 'WINDIR', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'TMPDIR', 'LANG', 'LANGUAGE', 'TERM',
+  'COLORTERM', 'TZ', 'XDG_CONFIG_HOME', 'XDG_CACHE_HOME', 'XDG_DATA_HOME', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR',
+  'WSL_DISTRO_NAME', 'WSL_INTEROP', 'WSLENV', 'HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'NO_PROXY',
+  'SSL_CERT_FILE', 'SSL_CERT_DIR', 'NODE_EXTRA_CA_CERTS', 'NO_COLOR', 'FORCE_COLOR'
+]);
+
+export function providerEnvironment(environment = process.env, extras = {}) {
+  const filtered = {};
+  for (const [name, value] of Object.entries(environment)) {
+    if (providerEnvironmentNames.has(name.toUpperCase()) || name.toUpperCase().startsWith('LC_')) filtered[name] = value;
+  }
+  for (const [name, value] of Object.entries(extras)) {
+    if (!name.startsWith('SUBSCRIPTION_QA_')) throw new Error(`Unsupported provider environment extra: ${name}`);
+    filtered[name] = value;
+  }
+  return filtered;
+}
+
 export function runProcess(command, args, { cwd, timeoutMs = 30000, input = '', env = process.env, signal, binaryStdout = false } = {}) {
   return new Promise(resolveResult => {
     let stdout = '', stdoutChunks = [], stderr = '', outputBytes = 0;
@@ -167,18 +187,19 @@ export function hasActiveSubscriptionSession(provider, result) {
 export async function doctor(config, execute = runProcess, options = {}) {
   const { activeSession = false, environment = process.env, ...processOptions } = options;
   assertSubscriptionEnvironment(environment);
+  const providerEnv = providerEnvironment(environment);
   const entries = await Promise.all(['codex', 'claude'].map(async provider => {
     const command = config.providers[provider]?.command;
     if (!command) return [provider, { ready: false, reason: 'CLI_NOT_CONFIGURED' }];
-    const version = await execute(command, ['--version'], { ...processOptions, env: environment });
+    const version = await execute(command, ['--version'], { ...processOptions, env: providerEnv });
     if (version.code !== 0) return [provider, { ready: false, reason: 'CLI_NOT_AVAILABLE' }];
     const status = await execute(command, provider === 'codex' ? ['login', 'status'] : ['auth', 'status'],
-      { ...processOptions, env: environment });
+      { ...processOptions, env: providerEnv });
     if (!hasSubscriptionAuth(provider, status))
       return [provider, { ready: false, reason: 'SUBSCRIPTION_LOGIN_NOT_CONFIRMED' }];
     const probeArgs = activeSession ? activeSessionArguments(provider) : null;
     if (!probeArgs) return [provider, { ready: true, reason: 'SUBSCRIPTION_LOGIN_CONFIRMED' }];
-    const probe = await execute(command, probeArgs, { ...processOptions, env: environment,
+    const probe = await execute(command, probeArgs, { ...processOptions, env: providerEnv,
       timeoutMs: Math.min(processOptions.timeoutMs ?? 30000, 60000),
       input: 'Return only a JSON object matching the supplied schema with ok=true.' });
     const ready = hasActiveSubscriptionSession(provider, probe);
@@ -190,11 +211,13 @@ export async function doctor(config, execute = runProcess, options = {}) {
 
 export function argumentsFor(provider, schemaPath) {
   if (provider === 'codex') return ['exec', '--json', '--ignore-user-config', '--sandbox', 'read-only',
-    '-c', 'forced_login_method="chatgpt"', '--output-schema', schemaPath, '-'];
+    '--ephemeral', '-c', 'forced_login_method="chatgpt"', '--output-schema', schemaPath, '-'];
   // Native subscription login; deliberately not --bare (which requires API auth).
   // tools limits the actual tool set, not only the prompt's requested permissions.
   return ['-p', '--output-format', 'json', '--json-schema', JSON.stringify(schema),
     '--tools', 'Read,Glob,Grep', '--allowedTools', 'Read,Glob,Grep',
+    '--restricted', '--permission-mode', 'dontAsk', '--permission-prompts', 'none',
+    '--no-session-persistence', '--disable-slash-commands', '--no-chrome',
     '--strict-mcp-config', '--mcp-config', '{"mcpServers":{}}', '--max-turns', '35'];
 }
 

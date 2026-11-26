@@ -20,6 +20,8 @@
     "plan": "node src/cli.mjs plan",
     "doctor": "node src/cli.mjs doctor",
     "live:doctor": "node src/cli.mjs live-doctor",
+    "demo": "node src/demo.mjs",
+    "capture:demo": "node scripts/capture-demo.mjs",
     "smoke:android": "node test/fixtures/android-smoke.mjs",
     "smoke:dashboard": "node test/fixtures/dashboard-smoke.mjs",
     "audit": "node src/cli.mjs audit",

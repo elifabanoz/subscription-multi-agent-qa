@@ -5,6 +5,10 @@ browser and Android emulator/device testing.
 Each user signs in with their own ChatGPT/Codex and Claude subscription. The project does not accept,
 store or proxy OpenAI/Anthropic API keys.
 
+![Synthetic Subscription QA dashboard preview](docs/assets/dashboard-preview.png)
+
+> **Public technical preview.** The image above uses synthetic data and does not imply that a live target passed QA.
+
 ## What it does
 
 - Runs up to two read-only agents in parallel, one per provider.
@@ -53,6 +57,16 @@ npm run setup:browser
 remain in the official CLI stores on the user's computer; they are never copied into this repository.
 The login check makes one minimal, tool-disabled Claude request so an expired OAuth session cannot be
 mistaken for a working subscription. It consumes a negligible amount of the user's normal allowance.
+
+## Try the dashboard without subscriptions
+
+```bash
+npm ci
+npm run demo
+```
+
+Open the printed `127.0.0.1` URL to explore a synthetic team run. This demo does not start Codex, Claude,
+Chromium, ADB or a target application, and it consumes no subscription allowance. Press `Ctrl+C` to stop it.
 
 ## Configure
 
@@ -151,7 +165,20 @@ Review a generated report before sharing it: source paths and project facts may 
 ```bash
 npm test
 npm run check
+npm run capture:demo
 ```
+
+`capture:demo` regenerates the synthetic README screenshot and a local WebM recording under
+`runs/linkedin/`. Generated recordings stay outside Git.
+
+## Current scope and limitations
+
+- This release is a public technical preview for developers and QA teams, not a hosted SaaS product.
+- Real runs require the user's own active Codex and Claude subscription sessions.
+- The runner does not start, seed or deploy the target application; the user supplies an isolated local or staging target.
+- Live browser and Android checks are opt-in. A configured capability is not reported as an executed test unless an operation actually ran.
+- GitHub Actions verifies code and the synthetic Chromium dashboard smoke test, but cannot verify private subscription sessions.
+- The tool is not a penetration-testing framework and must not be pointed at systems without authorization.
 
 GitHub Actions runs code-only checks. It intentionally does not receive or verify anyone's subscription
 session. Local `npm run doctor` is the authoritative login check.

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile } from 'node:fs/promises';
+import { mkdtemp, readFile, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { RunDashboard, dashboardSnapshot } from '../src/dashboard.mjs';
@@ -42,10 +42,10 @@ test('dashboard snapshot exposes explicit collaboration data without task histor
 });
 
 test('dashboard snapshot exposes bounded run provenance without inventing missing booleans', () => {
-  const snapshot = dashboardSnapshot({ ...record, version: '0.5.4', dirtyCheckout: false,
+  const snapshot = dashboardSnapshot({ ...record, version: '0.6.0', dirtyCheckout: false,
     liveUiTestsExecuted: true, evidenceIndependentlyVerified: false });
   assert.deepEqual(snapshot.provenance, {
-    version: '0.5.4',
+    version: '0.6.0',
     dirtyCheckout: false,
     liveUiTestsExecuted: true,
     evidenceIndependentlyVerified: false
@@ -144,4 +144,35 @@ test('dashboard is loopback-only, token-scoped and writes a safe static archive'
   const archived = await readFile(output, 'utf8');
   assert.doesNotMatch(archived, /Completed run/);
   assert.doesNotMatch(archived, /<script>alert\(1\)<\/script>/);
+});
+
+test('dashboard serves only recorded PNG evidence, downloads finished reports and stops on request', async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'subscription-qa-evidence-'));
+  await mkdir(join(directory, 'live-artifacts'));
+  const image = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10, 0]);
+  await writeFile(join(directory, 'live-artifacts', 'screen.png'), image);
+  await writeFile(join(directory, 'report.json'), JSON.stringify({ outcome: 'done' }));
+  let stopped = 0, reruns = 0;
+  const dashboard = new RunDashboard(record, { outputDirectory: directory, onStop: () => { stopped++; },
+    onRerun: () => { reruns++; } });
+  const url = await dashboard.listen();
+  t.after(() => dashboard.close());
+  assert.equal((await fetch(new URL('report', url))).status, 404);
+  const screenshot = await fetch(new URL('evidence/live-1', url));
+  assert.equal(screenshot.status, 200);
+  assert.equal(screenshot.headers.get('content-type'), 'image/png');
+  assert.deepEqual(Buffer.from(await screenshot.arrayBuffer()), image);
+  assert.equal((await fetch(new URL('evidence/live-2', url))).status, 404);
+  assert.equal((await fetch(new URL('stop', url), { method: 'POST' })).status, 202);
+  assert.equal(stopped, 1);
+  assert.equal((await fetch(new URL('rerun', url), { method: 'POST' })).status, 404);
+  dashboard.update({ ...record, finishedAt: '2026-01-01T01:00:00Z' });
+  const report = await fetch(new URL('report', url));
+  assert.equal(report.status, 200);
+  assert.match(report.headers.get('content-disposition'), /attachment/);
+  assert.deepEqual(await report.json(), { outcome: 'done' });
+  assert.equal((await fetch(new URL('stop', url), { method: 'POST' })).status, 404);
+  assert.equal((await fetch(new URL('rerun', url), { method: 'POST' })).status, 202);
+  assert.equal(reruns, 1);
+  assert.equal((await fetch(new URL('rerun', url), { method: 'POST' })).status, 404);
 });

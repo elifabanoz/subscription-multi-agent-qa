@@ -122,7 +122,13 @@ npm run team -- --repo /absolute/path/to/your-project --config qa.local.json
 `team` prints a random, token-scoped `127.0.0.1` dashboard URL. Open it while the run is active to watch each
 agent's assignment and state, turn start/finish events, inbox checks, explicit agent-to-agent messages and
 browser/Android evidence in an English, chat-style workspace. It does not expose hidden model reasoning.
-At completion, a standalone `dashboard.html` snapshot is written beside `report.json` for local review.
+Search and filter by agent, open recorded screenshots, and stop an active run from the dashboard. On a phone,
+Chat, Agents, Activity and Evidence are separate tabs. The connection label indicates only dashboard connectivity;
+the agent list and provenance chips show whether work or live UI checks actually ran.
+After the run, use **Download report** or **Run again**. A rerun creates a new private run directory and prints a
+new dashboard URL in the terminal. The terminal stays open for these actions; press Ctrl+C to close it. A standalone
+`dashboard.html` snapshot is written beside `report.json` and `live-artifacts/` for local review. Open the archive
+from that directory to keep its report and screenshot links working.
 
 To verify the configured disposable Android device before a full agent run:
 
@@ -178,6 +184,7 @@ npm run capture:demo
 - The runner does not start, seed or deploy the target application; the user supplies an isolated local or staging target.
 - Live browser and Android checks are opt-in. A configured capability is not reported as an executed test unless an operation actually ran.
 - GitHub Actions verifies code and the synthetic Chromium dashboard smoke test, but cannot verify private subscription sessions.
+- The synthetic dashboard demo is labeled as a demo; its sample messages and evidence do not prove any agent or UI test ran.
 - The tool is not a penetration-testing framework and must not be pointed at systems without authorization.
 
 GitHub Actions runs code-only checks. It intentionally does not receive or verify anyone's subscription

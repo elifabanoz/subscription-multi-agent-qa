@@ -36,17 +36,22 @@ async function main() {
   }
   if (!['audit', 'team'].includes(command) || !options.repo) throw new Error('Usage: node src/cli.mjs plan|doctor|audit|team --repo /path/to/project');
   if (process.platform === 'win32') throw new Error('Use WSL2 for this first release so timed-out agent process trees can be stopped reliably.');
-  const out = join(resolve(options.out ?? join(root, 'runs')), randomUUID());
   const controller = new AbortController();
   const interrupt = () => controller.abort();
   if (command === 'team') { process.once('SIGINT', interrupt); process.once('SIGTERM', interrupt); }
-  let report;
+  let report, rerunRequested;
   try {
-    report = command === 'team' ? await teamAudit(config, options.repo, out, { signal: controller.signal }) : await audit(config, options.repo, out);
+    do {
+      rerunRequested = false;
+      const out = join(resolve(options.out ?? join(root, 'runs')), randomUUID());
+      report = command === 'team'
+        ? await teamAudit(config, options.repo, out, { signal: controller.signal, onRerun: () => { rerunRequested = true; } })
+        : await audit(config, options.repo, out);
+      console.log(`Report: ${join(out, 'report.json')}`);
+    } while (rerunRequested && !controller.signal.aborted);
   } finally {
     process.off('SIGINT', interrupt); process.off('SIGTERM', interrupt);
   }
-  console.log(`Report: ${join(out, 'report.json')}`);
   if (reportRequiresAttention(report)) process.exitCode = 2;
 }
 main().catch(error => { console.error(error.message); process.exitCode = 2; });

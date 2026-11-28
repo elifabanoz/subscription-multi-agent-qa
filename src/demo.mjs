@@ -5,9 +5,9 @@ import { RunDashboard } from './dashboard.mjs';
 export function createDemoRecord(now = Date.now()) {
   const at = offset => new Date(now + offset).toISOString();
   return {
-    repository: 'Synthetic QA workspace', commit: null, dirtyCheckout: false,
-    version: '0.5.4', mode: 'synthetic-dashboard-demo', totalTurns: 5,
-    liveUiTestsExecuted: true, evidenceIndependentlyVerified: false,
+    repository: 'Synthetic QA workspace', commit: null, dirtyCheckout: null,
+    version: '0.6.0', mode: 'synthetic-dashboard-demo', totalTurns: 5,
+    liveUiTestsExecuted: false, evidenceIndependentlyVerified: false,
     limits: { maxMessages: 100 },
     taskDefinitions: [
       { id: 'inventory', provider: 'codex', role: 'architecture', focus: 'Map architecture, roles and trust boundaries.' },

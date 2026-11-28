@@ -233,7 +233,10 @@ export async function scheduleTeam(config, bus, execute, { onChange = async () =
   }
 }
 
-export async function teamAudit(config, repo, out, { signal } = {}) {
+export async function teamAudit(config, repo, out, { signal, onRerun } = {}) {
+  const stopController = new AbortController();
+  const runSignal = signal ? AbortSignal.any([signal, stopController.signal]) : stopController.signal;
+  let rerunRequested = false, rerunResolve = null;
   validateConfig(config); const limits = teamLimits(config);
   const directory = resolve(repo);
   const git = await runProcess('git', ['rev-parse', '--show-toplevel'], { cwd: directory });
@@ -257,7 +260,7 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
     type: 'live.tool', timestamp: operation.timestamp, agentId: operation.agentId,
     tool: operation.tool, artifact: operation.artifact ? operation.artifact.split(/[\\/]/).at(-1) : null
   }) });
-  record = { version: '0.5.4', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
+  record = { version: '0.6.0', mode: (runtime.capabilities().browser || runtime.capabilities().android) ? 'live-team-qa' : 'live-team-source-audit', repository: config.repository,
     commit: head.stdout.trim(), dirtyCheckout: Boolean(dirty.stdout.trim()), startedAt: new Date().toISOString(),
     liveUiTestsExecuted: false, evidenceIndependentlyVerified: false, limits,
     taskDefinitions: config.tasks.map(task => ({ id: task.id, provider: task.provider, role: task.role ?? null, focus: task.focus })),
@@ -271,7 +274,8 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
   } });
   const endpoint = await bus.listen();
   const enabledToolNames = availableTeamTools(config).map(tool => tool.name);
-  dashboard = new RunDashboard(record);
+  dashboard = new RunDashboard(record, { outputDirectory: out, onStop: () => stopController.abort(),
+    onRerun: onRerun ? () => { rerunRequested = true; onRerun(); rerunResolve?.(); } : null });
   const dashboardUrl = await dashboard.listen();
   const bridge = join(dirname(fileURLToPath(import.meta.url)), 'team-mcp.mjs');
   console.log(`Canlı mesajlar: ${join(out, 'events.jsonl')}`);
@@ -313,10 +317,19 @@ export async function teamAudit(config, repo, out, { signal } = {}) {
             result.checks.some(check => ['passed', 'failed'].includes(check.status)) };
         } catch { return executionFailure(task.provider, execution, 'INVALID_OR_FAILED_PROVIDER_RESULT'); }
       } finally { bus.revokeToken(token); }
-    }, { onChange: persist, signal });
+    }, { onChange: persist, signal: runSignal });
     record.totalTurns = outcome.totalTurns; record.stopReason = outcome.stopReason;
     record.finishedAt = new Date().toISOString();
     await persist(outcome.states);
+    if (onRerun && !signal?.aborted && !rerunRequested) {
+      console.log('Run finished. Download the report or choose Run again in the dashboard. Press Ctrl+C to close.');
+      await new Promise(resolve => {
+        const done = () => { signal?.removeEventListener('abort', done); resolve(); };
+        rerunResolve = done;
+        signal?.addEventListener('abort', done, { once: true });
+        if (rerunRequested || signal?.aborted) done();
+      });
+    }
     return record;
   } finally {
     await dashboard.writeStatic(join(out, 'dashboard.html')).catch(() => {});

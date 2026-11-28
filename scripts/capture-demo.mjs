@@ -21,7 +21,12 @@ first.messages = []; first.activity = first.activity.slice(0, 1); first.live.ope
 const dashboard = new RunDashboard(first);
 const url = await dashboard.listen();
 const temporaryVideo = await mkdtemp(join(tmpdir(), 'subscription-qa-demo-'));
-const browser = await chromium.launch({ headless: true });
+let browser;
+try { browser = await chromium.launch({ headless: true }); }
+catch (error) {
+  if (!String(error.message).includes('Executable doesn\'t exist')) throw error;
+  browser = await chromium.launch({ headless: true, channel: 'chrome' });
+}
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 720 },
     recordVideo: { dir: temporaryVideo, size: { width: 1280, height: 720 } } });
@@ -38,7 +43,7 @@ try {
   const finished = structuredClone(base);
   finished.finishedAt = new Date().toISOString();
   finished.tasks['frontend-client'] = { provider: 'claude', state: 'completed', turns: 2,
-    result: { summary: 'Client flows reviewed.', checks: [{ name: 'Session expiry', status: 'passed' }] } };
+    result: { summary: 'Sample client review.', checks: [{ name: 'Session expiry', status: 'source_observation' }] } };
   finished.tasks['backend-api'] = { provider: 'codex', state: 'completed', turns: 2,
     result: { summary: 'Ownership checks reviewed.', checks: [{ name: 'Ownership', status: 'source_observation' }] } };
   dashboard.update(finished); await page.waitForTimeout(5000);

@@ -200,7 +200,8 @@ export class LiveQaRuntime {
   async androidUiXml() {
     const remote = `/sdcard/subscription-qa-${process.pid}-${randomUUID()}.xml`;
     try {
-      await this.adb(['shell', 'uiautomator', 'dump', remote]);
+      const result = await this.adb(['shell', 'uiautomator', 'dump', remote]);
+      if (/could not get idle state/i.test(result)) throw new Error('ANDROID_UI_NOT_IDLE');
       return await this.adb(['shell', 'cat', remote]);
     }
     finally { await this.adb(['shell', 'rm', '-f', remote]).catch(() => {}); }
@@ -209,7 +210,14 @@ export class LiveQaRuntime {
     const output = await this.adb(['shell', 'dumpsys', 'window', 'windows']);
     const focused = output.split(/\r?\n/).filter(line => /mCurrentFocus|mFocusedApp/.test(line)).join('\n');
     const escaped = this.config.android.package.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    if (!new RegExp(`(?:^|[\\s{])${escaped}/`).test(focused)) throw new Error('ANDROID_APP_NOT_FOREGROUND');
+    const inTarget = new RegExp(`(?:^|[\\s{])${escaped}/`);
+    if (focused) {
+      if (inTarget.test(focused)) return;
+      throw new Error('ANDROID_APP_NOT_FOREGROUND');
+    }
+    const activities = await this.adb(['shell', 'dumpsys', 'activity', 'activities']);
+    const top = activities.split(/\r?\n/).find(line => /topResumedActivity=/.test(line)) ?? '';
+    if (!inTarget.test(top)) throw new Error('ANDROID_APP_NOT_FOREGROUND');
   }
   selector(value) {
     if (!bounded(value, 500)) throw new Error('INVALID_SELECTOR');

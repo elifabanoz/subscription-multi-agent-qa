@@ -233,6 +233,34 @@ test('Android screenshot is captured as binary stdout without host path translat
   assert.deepEqual(observed.map(item => [item.agentId, item.tool]), [['qa', 'android_screenshot']]);
 });
 
+test('Android foreground guard uses top resumed activity when newer window dumps omit focus fields', async () => {
+  const calls = [];
+  const execute = async (_command, args) => {
+    calls.push(args);
+    return { code: 0, stdout: args.includes('window') ? 'Window Manager state' :
+      'topResumedActivity=ActivityRecord{123 u0 com.example.app/.MainActivity t1}', stderr: '' };
+  };
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-android-top-resumed', { browserType, execute });
+  await runtime.assertAndroidAppForeground();
+  assert.equal(calls.length, 2);
+  const foreign = new LiveQaRuntime(baseConfig, '/tmp/live-android-top-foreign', { browserType,
+    execute: async (_command, args) => ({ code: 0, stdout: args.includes('window') ? 'Window Manager state' :
+      'topResumedActivity=ActivityRecord{123 u0 com.other.app/.MainActivity t1}', stderr: '' }) });
+  await assert.rejects(() => foreign.assertAndroidAppForeground(), /ANDROID_APP_NOT_FOREGROUND/);
+});
+
+test('Android UI dump reports a non-idle animated screen without treating it as evidence', async () => {
+  const calls = [];
+  const execute = async (_command, args) => {
+    calls.push(args);
+    return { code: 0, stdout: args.includes('uiautomator') ? 'ERROR: could not get idle state.' : '', stderr: '' };
+  };
+  const runtime = new LiveQaRuntime(baseConfig, '/tmp/live-android-non-idle', { browserType, execute });
+  await assert.rejects(() => runtime.androidUiXml(), /ANDROID_UI_NOT_IDLE/);
+  assert.equal(calls.some(args => args.includes('cat')), false);
+  assert.equal(calls.some(args => args.includes('rm')), true);
+});
+
 test('Android screenshots are default-deny unless explicitly enabled', async () => {
   const config = structuredClone(baseConfig);
   config.live.android.allowScreenshots = false;

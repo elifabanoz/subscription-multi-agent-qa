@@ -339,8 +339,14 @@ test('passed and failed claims require evidence created by that agent', () => {
   const matching = new Map([['live-2', { checkName: 'Login', status: 'passed', kind: 'text_present' }]]);
   assert.deepEqual(parseOutput('codex', output, { liveEvidence: matching }), report);
   assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-9', { checkName: 'Login', status: 'passed' }]]) }), /runtime evidence/i);
-  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Other', status: 'passed' }]]) }), /deterministic assertion/i);
-  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Login', status: 'failed' }]]) }), /deterministic assertion/i);
+  const correctedName = parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Other', status: 'passed' }]]) });
+  assert.deepEqual(correctedName.checks[0], { name: 'Other', status: 'passed', evidence:
+    ['Recorded assertion [live:live-2]; provider label or outcome corrected to match the runtime result.'] });
+  const correctedFailure = parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Login', status: 'failed' }]]) });
+  assert.equal(correctedFailure.checks[0].status, 'failed');
+  assert.deepEqual(correctedFailure.checks[0].evidence,
+    ['Recorded assertion [live:live-2]; provider label or outcome corrected to match the runtime result.']);
+  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Login', status: 'skipped' }]]) }), /deterministic assertion/i);
 
   const mixedOwnership = structuredClone(report);
   mixedOwnership.checks[0].evidence[0] += ' plus foreign evidence [live:live-7]';
@@ -349,6 +355,10 @@ test('passed and failed claims require evidence created by that agent', () => {
     JSON.stringify({ type: 'turn.completed' })
   ].join('\n');
   assert.throws(() => parseOutput('codex', mixedOutput, { liveEvidence: matching }), /unique runtime evidence/i);
+  assert.throws(() => parseOutput('codex', mixedOutput, { liveEvidence: new Map([
+    ['live-2', { checkName: 'Login', status: 'passed' }],
+    ['live-7', { checkName: 'Different check', status: 'failed' }]
+  ]) }), /deterministic assertion/i);
 
   const reused = structuredClone(report);
   reused.checks.push({ name: 'Other feature', status: 'failed', evidence: ['Reused the same operation [live:live-2]'] });

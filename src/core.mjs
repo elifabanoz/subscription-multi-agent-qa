@@ -254,11 +254,20 @@ export function parseOutput(provider, stdout, { liveEvidence = new Map() } = {})
       const references = check.evidence.flatMap(item => [...item.matchAll(/\[live:(live-[0-9]+)\]/g)].map(match => match[1]));
       if (!references.length || references.some(id => !liveEvidence.has(id)) || references.some(id => claimedEvidence.has(id)))
         throw new Error('Live result is not bound to unique runtime evidence from this turn.');
+      const first = liveEvidence.get(references[0]);
+      if (!first?.checkName || !['passed', 'failed'].includes(first.status))
+        throw new Error('Live result does not match a deterministic assertion for this check.');
       for (const id of references) {
         const verification = liveEvidence.get(id);
-        if (!verification || verification.checkName !== check.name.trim() || verification.status !== check.status)
+        if (!verification || verification.checkName !== first.checkName || verification.status !== first.status)
           throw new Error('Live result does not match a deterministic assertion for this check.');
         claimedEvidence.add(id);
+      }
+      if (check.name.trim() !== first.checkName || check.status !== first.status) {
+        check.name = first.checkName;
+        check.status = first.status;
+        check.evidence = references.map(id =>
+          `Recorded assertion [live:${id}]; provider label or outcome corrected to match the runtime result.`);
       }
     }
   }

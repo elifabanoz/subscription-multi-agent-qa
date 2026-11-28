@@ -250,21 +250,18 @@ export function parseOutput(provider, stdout, { liveEvidence = new Map() } = {})
     if (!check || typeof check.name !== 'string' || !check.name.trim() ||
         !['passed', 'failed', 'source_observation', 'suspected_issue', 'not_tested'].includes(check.status) ||
         !Array.isArray(check.evidence) || check.evidence.some(x => typeof x !== 'string' || !x.trim()) ||
-        (check.status !== 'not_tested' && check.evidence.length === 0)) throw new Error('Invalid check or missing evidence.');
+        (['source_observation', 'suspected_issue'].includes(check.status) && check.evidence.length === 0))
+      throw new Error('Invalid check or missing evidence.');
     if (['passed', 'failed'].includes(check.status)) {
       const references = check.evidence.flatMap(item => [...item.matchAll(/\[live:(live-[0-9]+)\]/g)].map(match => match[1]));
-      if (!references.length || references.some(id => !liveEvidence.has(id)))
-        throw new Error('Live result is not bound to unique runtime evidence from this turn.');
-      const assertions = references.filter(id => {
+      const assertions = [...new Set(references)].filter(id => {
         const verification = liveEvidence.get(id);
-        return verification?.checkName && ['passed', 'failed'].includes(verification.status);
+        return !claimedEvidence.has(id) && verification?.checkName &&
+          ['passed', 'failed'].includes(verification.status);
       });
-      if (!assertions.length || new Set(assertions).size !== assertions.length ||
-          assertions.some(id => claimedEvidence.has(id)))
-        throw new Error('Live result is not bound to unique runtime evidence from this turn.');
       for (const id of assertions) {
         const verification = liveEvidence.get(id);
-        const exactMatch = assertions.length === 1 && check.name.trim() === verification.checkName &&
+        const exactMatch = references.length === 1 && check.name.trim() === verification.checkName &&
           check.status === verification.status;
         normalizedChecks.push(exactMatch ? check : {
           name: verification.checkName,
@@ -272,6 +269,11 @@ export function parseOutput(provider, stdout, { liveEvidence = new Map() } = {})
           evidence: [`Recorded assertion [live:${id}]; provider label or outcome corrected to match the runtime result.`]
         });
         claimedEvidence.add(id);
+      }
+      if (!assertions.length || references.some(id => !liveEvidence.has(id) ||
+          (liveEvidence.get(id)?.checkName && !assertions.includes(id)))) {
+        normalizedChecks.push({ name: check.name, status: 'not_tested', evidence:
+          ['Reported live claim was not supported by a unique recorded assertion from this agent.'] });
       }
     } else normalizedChecks.push(check);
   }

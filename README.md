@@ -19,6 +19,7 @@ store or proxy OpenAI/Anthropic API keys.
 - Drives a running Android emulator or device through restricted ADB actions when Android live mode is enabled.
 - Binds every `passed` or `failed` claim to an evidence ID produced by a real live tool call.
 - Reconciles mislabeled live claims to recorded assertion names and outcomes, splitting grouped assertions into separate checks. A screenshot alone cannot prove a pass, and a failed assertion cannot become a pass.
+- Marks any remaining unsupported live claim `not_tested` so one bad citation cannot turn into a false pass or stop unrelated agents.
 - Requires each `passed` or `failed` claim to use unique evidence produced by that agent in the current run, including earlier turns of the same run.
 - Separates live results, source observations, suspected issues and runtime tests that were not executed.
 - Stops safely on provider, quota, timeout and subscription-state failures.

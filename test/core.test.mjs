@@ -124,7 +124,7 @@ test('errors, truncated responses and unsupported pass claims cannot become succ
   assert.throws(() => parseOutput('codex', '{"type":"turn.failed"}'));
   assert.throws(() => parseOutput('codex', codexOutput(result).split('\n').slice(0, -1).join('\n')));
   const fakePass = structuredClone(result); fakePass.checks[0].status = 'passed';
-  assert.throws(() => parseOutput('codex', codexOutput(fakePass)));
+  assert.equal(parseOutput('codex', codexOutput(fakePass)).checks[0].status, 'not_tested');
   const noEvidence = structuredClone(result); noEvidence.checks[0].status = 'source_observation';
   assert.throws(() => parseOutput('claude', JSON.stringify({ structured_output: noEvidence })));
   assert.throws(() => parseOutput('claude', JSON.stringify({ structured_output: { ...result, checks: [] } })));

@@ -338,7 +338,7 @@ test('passed and failed claims require evidence created by that agent', () => {
   ].join('\n');
   const matching = new Map([['live-2', { checkName: 'Login', status: 'passed', kind: 'text_present' }]]);
   assert.deepEqual(parseOutput('codex', output, { liveEvidence: matching }), report);
-  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-9', { checkName: 'Login', status: 'passed' }]]) }), /runtime evidence/i);
+  assert.equal(parseOutput('codex', output, { liveEvidence: new Map([['live-9', { checkName: 'Login', status: 'passed' }]]) }).checks[0].status, 'not_tested');
   const correctedName = parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Other', status: 'passed' }]]) });
   assert.deepEqual(correctedName.checks[0], { name: 'Other', status: 'passed', evidence:
     ['Recorded assertion [live:live-2]; provider label or outcome corrected to match the runtime result.'] });
@@ -346,7 +346,7 @@ test('passed and failed claims require evidence created by that agent', () => {
   assert.equal(correctedFailure.checks[0].status, 'failed');
   assert.deepEqual(correctedFailure.checks[0].evidence,
     ['Recorded assertion [live:live-2]; provider label or outcome corrected to match the runtime result.']);
-  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Login', status: 'skipped' }]]) }), /runtime evidence/i);
+  assert.equal(parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Login', status: 'skipped' }]]) }).checks[0].status, 'not_tested');
 
   const mixedOwnership = structuredClone(report);
   mixedOwnership.checks[0].evidence[0] += ' plus foreign evidence [live:live-7]';
@@ -354,7 +354,8 @@ test('passed and failed claims require evidence created by that agent', () => {
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(mixedOwnership) } }),
     JSON.stringify({ type: 'turn.completed' })
   ].join('\n');
-  assert.throws(() => parseOutput('codex', mixedOutput, { liveEvidence: matching }), /unique runtime evidence/i);
+  const foreign = parseOutput('codex', mixedOutput, { liveEvidence: matching });
+  assert.deepEqual(foreign.checks.map(check => check.status), ['passed', 'not_tested']);
   const split = parseOutput('codex', mixedOutput, { liveEvidence: new Map([
     ['live-2', { checkName: 'Login', status: 'passed' }],
     ['live-7', { checkName: 'Different check', status: 'failed' }]
@@ -368,7 +369,14 @@ test('passed and failed claims require evidence created by that agent', () => {
     ['live-7', null]
   ]) });
   assert.deepEqual(screenshotAndAssertion.checks.map(check => check.status), ['passed']);
-  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-2', null]]) }), /runtime evidence/i);
+  assert.equal(parseOutput('codex', output, { liveEvidence: new Map([['live-2', null]]) }).checks[0].status, 'not_tested');
+  const noReference = structuredClone(report);
+  noReference.checks[0].evidence = [];
+  const noReferenceOutput = [
+    JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(noReference) } }),
+    JSON.stringify({ type: 'turn.completed' })
+  ].join('\n');
+  assert.equal(parseOutput('codex', noReferenceOutput, { liveEvidence: matching }).checks[0].status, 'not_tested');
 
   const reused = structuredClone(report);
   reused.checks.push({ name: 'Other feature', status: 'failed', evidence: ['Reused the same operation [live:live-2]'] });
@@ -376,5 +384,6 @@ test('passed and failed claims require evidence created by that agent', () => {
     JSON.stringify({ type: 'item.completed', item: { type: 'agent_message', text: JSON.stringify(reused) } }),
     JSON.stringify({ type: 'turn.completed' })
   ].join('\n');
-  assert.throws(() => parseOutput('codex', reusedOutput, { liveEvidence: matching }), /unique runtime evidence/i);
+  assert.deepEqual(parseOutput('codex', reusedOutput, { liveEvidence: matching }).checks.map(check => check.status),
+    ['passed', 'not_tested']);
 });

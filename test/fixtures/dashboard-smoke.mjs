@@ -91,6 +91,7 @@ try {
   await page.setViewportSize({ width: 390, height: 844 });
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   assert.equal(await page.locator('#mobileProvenance').isVisible(), true);
+  assert.match(await page.locator('#mobileProvenance').textContent(), / · /);
   assert.equal(await page.locator('#chatPane').isVisible(), true);
   assert.equal(await page.locator('#agentsPane').isVisible(), false);
   await page.getByRole('tab', { name: 'Evidence' }).click();

@@ -278,6 +278,8 @@ Return JSON matching the supplied schema, in English. Cite repo-relative file pa
 evidence. Source observations are NOT passing tests; mark all unexecuted runtime checks not_tested. A passed
 or failed check MUST include the exact [live:live-N] evidence reference returned by a browser_assert_* or
 android_assert_* tool used by you, and its check argument must exactly match the reported check name.
+Use each live assertion evidence reference in only one check. If an assertion fails, report that same
+check as failed with its exact evidence reference; do not relabel or reuse the reference.
 The handoff must describe concrete prerequisites, role transitions and expected behavior for future tests.
 Do not include passwords, tokens, personal data, or actual email verification codes.
 Configured live capabilities: ${JSON.stringify(liveCapabilities)}.

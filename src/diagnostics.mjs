@@ -1,4 +1,16 @@
 // Persist only bounded metadata and fixed error labels, never raw model output or credentials.
+export function parseFailureReason(error) {
+  const known = new Map([
+    ['Provider reported failure.', 'PROVIDER_RESULT_REPORTED_FAILURE'],
+    ['Missing final result.', 'PROVIDER_RESULT_MISSING_FINAL'],
+    ['Incomplete result.', 'PROVIDER_RESULT_INCOMPLETE'],
+    ['Invalid check or missing evidence.', 'PROVIDER_RESULT_INVALID_CHECK'],
+    ['Live result is not bound to unique runtime evidence from this turn.', 'PROVIDER_RESULT_INVALID_EVIDENCE_REF'],
+    ['Live result does not match a deterministic assertion for this check.', 'PROVIDER_RESULT_ASSERTION_MISMATCH']
+  ]);
+  return known.get(error?.message) ?? 'INVALID_OR_FAILED_PROVIDER_RESULT';
+}
+
 export function executionFailure(provider, execution, fallback = 'CLI_NONZERO_EXIT') {
   const knownSubtypes = new Set(['success', 'error_max_turns', 'error_during_execution',
     'error_max_budget_usd', 'error_max_structured_output_retries']);

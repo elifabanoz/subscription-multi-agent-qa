@@ -1,6 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { executionFailure } from '../src/diagnostics.mjs';
+import { executionFailure, parseFailureReason } from '../src/diagnostics.mjs';
+
+test('provider parse failures are classified without persisting arbitrary model text', () => {
+  assert.equal(parseFailureReason(new Error('Live result does not match a deterministic assertion for this check.')),
+    'PROVIDER_RESULT_ASSERTION_MISMATCH');
+  assert.equal(parseFailureReason(new Error('private token value')), 'INVALID_OR_FAILED_PROVIDER_RESULT');
+});
 import { MessageBus } from '../src/message-bus.mjs';
 import { scheduleTeam } from '../src/team.mjs';
 

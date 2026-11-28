@@ -3,7 +3,7 @@ import { resolve, join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { schema, validateConfig, doctor, runProcess, parseOutput, promptFor, providerEnvironment } from './core.mjs';
 import { MessageBus, teamTools } from './message-bus.mjs';
-import { executionFailure } from './diagnostics.mjs';
+import { executionFailure, parseFailureReason } from './diagnostics.mjs';
 import { LiveQaRuntime } from './live-runtime.mjs';
 import { RunDashboard } from './dashboard.mjs';
 
@@ -315,7 +315,7 @@ export async function teamAudit(config, repo, out, { signal, onRerun } = {}) {
           if (!['done', 'waiting'].includes(result.decision)) throw new Error();
           return { state: 'completed', result, evidenceIndependentlyVerified:
             result.checks.some(check => ['passed', 'failed'].includes(check.status)) };
-        } catch { return executionFailure(task.provider, execution, 'INVALID_OR_FAILED_PROVIDER_RESULT'); }
+        } catch (error) { return executionFailure(task.provider, execution, parseFailureReason(error)); }
       } finally { bus.revokeToken(token); }
     }, { onChange: persist, signal: runSignal });
     record.totalTurns = outcome.totalTurns; record.stopReason = outcome.stopReason;

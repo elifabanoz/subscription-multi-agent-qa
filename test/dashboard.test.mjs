@@ -64,6 +64,7 @@ test('dashboard snapshot preserves reply relationships for readable conversation
 test('dashboard uses the configured per-agent message budget', () => {
   const snapshot = dashboardSnapshot({ ...record, limits: { maxMessages: 20, maxMessagesPerAgent: 3 } });
   assert.equal(snapshot.messageBudget.maxMessagesPerAgent, 3);
+  assert.match(snapshot.messageBudget.label, /3 sends\/agent/);
 });
 
 test('dashboard outcome exposes failure, interruption and follow-up reasons', () => {

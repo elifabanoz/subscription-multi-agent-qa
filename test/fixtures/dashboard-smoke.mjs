@@ -64,7 +64,8 @@ try {
   assert.match(await page.locator('#provenance').textContent(), /live UI yes/);
   assert.equal(await page.locator('h1').textContent(), 'Subscription QA');
   assert.equal(await page.locator('h2').count(), 4);
-  assert.match(await page.locator('.reply-context').textContent(), /Reply to backend-api/);
+  assert.equal(await page.locator('.reply-context').textContent(),
+    'Reply to backend-api: Which client state is shown after a 401 response?');
   assert.equal(await page.locator('#conversationMeta').textContent(), '2 messages · 2/100 budget · 33 sends/agent');
   assert.match(await page.locator('#evidenceSummary').textContent(), /Browser on · Android on · screenshots off/);
   assert.equal(await page.locator('#connection').textContent(), 'Dashboard connected');
@@ -75,7 +76,7 @@ try {
   await page.locator('#agentFilter').selectOption('backend-api');
   assert.equal(await page.locator('.agent:visible').count(), 1);
   assert.equal(await page.locator('.chat-message:visible').count(), 2);
-  await page.locator('#search').fill('401 response');
+  await page.locator('#search').fill('protected stack');
   assert.equal(await page.locator('.chat-message:visible').count(), 1);
   await page.locator('#search').clear();
   await page.locator('#agentFilter').selectOption('');

@@ -299,7 +299,6 @@ export async function teamAudit(config, repo, out, { signal, onRerun } = {}) {
       const token = bus.issueToken(task.id, enabledToolNames);
       const brokerEnv = { SUBSCRIPTION_QA_BUS_URL: endpoint, SUBSCRIPTION_QA_BUS_TOKEN: token,
         SUBSCRIPTION_QA_TOOL_NAMES: JSON.stringify(enabledToolNames) };
-      const evidenceBeforeTurn = runtime.evidenceIds(task.id);
       console.log(`[agent] ${task.id}: ${task.provider}`);
       try {
         const execution = await runProcess(config.providers[task.provider].command,
@@ -310,7 +309,7 @@ export async function teamAudit(config, repo, out, { signal, onRerun } = {}) {
         if (execution.aborted || execution.timedOut || execution.overflow || execution.code !== 0)
           return executionFailure(task.provider, execution);
         try {
-          const liveEvidence = new Map([...runtime.evidenceFor(task.id)].filter(([id]) => !evidenceBeforeTurn.has(id)));
+          const liveEvidence = runtime.evidenceFor(task.id);
           const result = parseOutput(task.provider, execution.stdout, { liveEvidence });
           if (!['done', 'waiting'].includes(result.decision)) throw new Error();
           return { state: 'completed', result, evidenceIndependentlyVerified:

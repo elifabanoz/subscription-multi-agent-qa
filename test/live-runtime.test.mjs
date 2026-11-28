@@ -346,7 +346,7 @@ test('passed and failed claims require evidence created by that agent', () => {
   assert.equal(correctedFailure.checks[0].status, 'failed');
   assert.deepEqual(correctedFailure.checks[0].evidence,
     ['Recorded assertion [live:live-2]; provider label or outcome corrected to match the runtime result.']);
-  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Login', status: 'skipped' }]]) }), /deterministic assertion/i);
+  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-2', { checkName: 'Login', status: 'skipped' }]]) }), /runtime evidence/i);
 
   const mixedOwnership = structuredClone(report);
   mixedOwnership.checks[0].evidence[0] += ' plus foreign evidence [live:live-7]';
@@ -355,10 +355,20 @@ test('passed and failed claims require evidence created by that agent', () => {
     JSON.stringify({ type: 'turn.completed' })
   ].join('\n');
   assert.throws(() => parseOutput('codex', mixedOutput, { liveEvidence: matching }), /unique runtime evidence/i);
-  assert.throws(() => parseOutput('codex', mixedOutput, { liveEvidence: new Map([
+  const split = parseOutput('codex', mixedOutput, { liveEvidence: new Map([
     ['live-2', { checkName: 'Login', status: 'passed' }],
     ['live-7', { checkName: 'Different check', status: 'failed' }]
-  ]) }), /deterministic assertion/i);
+  ]) });
+  assert.deepEqual(split.checks.map(check => [check.name, check.status]),
+    [['Login', 'passed'], ['Different check', 'failed']]);
+  assert.deepEqual(split.checks.map(check => check.evidence[0].includes('[live:live-7]')),
+    [false, true]);
+  const screenshotAndAssertion = parseOutput('codex', mixedOutput, { liveEvidence: new Map([
+    ['live-2', { checkName: 'Login', status: 'passed' }],
+    ['live-7', null]
+  ]) });
+  assert.deepEqual(screenshotAndAssertion.checks.map(check => check.status), ['passed']);
+  assert.throws(() => parseOutput('codex', output, { liveEvidence: new Map([['live-2', null]]) }), /runtime evidence/i);
 
   const reused = structuredClone(report);
   reused.checks.push({ name: 'Other feature', status: 'failed', evidence: ['Reused the same operation [live:live-2]'] });

@@ -18,7 +18,7 @@ store or proxy OpenAI/Anthropic API keys.
 - Drives a real Chromium session through Playwright when browser live mode is enabled.
 - Drives a running Android emulator or device through restricted ADB actions when Android live mode is enabled.
 - Binds every `passed` or `failed` claim to an evidence ID produced by a real live tool call.
-- Reconciles a mislabeled live claim to the recorded assertion name and outcome, and notes the correction in its evidence; a failed assertion cannot become a pass.
+- Reconciles mislabeled live claims to recorded assertion names and outcomes, splitting grouped assertions into separate checks. A screenshot alone cannot prove a pass, and a failed assertion cannot become a pass.
 - Requires each `passed` or `failed` claim to use unique evidence produced by that agent in the current turn.
 - Separates live results, source observations, suspected issues and runtime tests that were not executed.
 - Stops safely on provider, quota, timeout and subscription-state failures.

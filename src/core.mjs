@@ -245,6 +245,7 @@ export function parseOutput(provider, stdout, { liveEvidence = new Map() } = {})
       typeof result.handoff !== 'string' || !Array.isArray(result.checks) || !result.checks.length)
     throw new Error('Incomplete result.');
   const claimedEvidence = new Set();
+  const normalizedChecks = [];
   for (const check of result.checks) {
     if (!check || typeof check.name !== 'string' || !check.name.trim() ||
         !['passed', 'failed', 'source_observation', 'suspected_issue', 'not_tested'].includes(check.status) ||
@@ -252,25 +253,29 @@ export function parseOutput(provider, stdout, { liveEvidence = new Map() } = {})
         (check.status !== 'not_tested' && check.evidence.length === 0)) throw new Error('Invalid check or missing evidence.');
     if (['passed', 'failed'].includes(check.status)) {
       const references = check.evidence.flatMap(item => [...item.matchAll(/\[live:(live-[0-9]+)\]/g)].map(match => match[1]));
-      if (!references.length || references.some(id => !liveEvidence.has(id)) || references.some(id => claimedEvidence.has(id)))
+      if (!references.length || references.some(id => !liveEvidence.has(id)))
         throw new Error('Live result is not bound to unique runtime evidence from this turn.');
-      const first = liveEvidence.get(references[0]);
-      if (!first?.checkName || !['passed', 'failed'].includes(first.status))
-        throw new Error('Live result does not match a deterministic assertion for this check.');
-      for (const id of references) {
+      const assertions = references.filter(id => {
         const verification = liveEvidence.get(id);
-        if (!verification || verification.checkName !== first.checkName || verification.status !== first.status)
-          throw new Error('Live result does not match a deterministic assertion for this check.');
+        return verification?.checkName && ['passed', 'failed'].includes(verification.status);
+      });
+      if (!assertions.length || new Set(assertions).size !== assertions.length ||
+          assertions.some(id => claimedEvidence.has(id)))
+        throw new Error('Live result is not bound to unique runtime evidence from this turn.');
+      for (const id of assertions) {
+        const verification = liveEvidence.get(id);
+        const exactMatch = assertions.length === 1 && check.name.trim() === verification.checkName &&
+          check.status === verification.status;
+        normalizedChecks.push(exactMatch ? check : {
+          name: verification.checkName,
+          status: verification.status,
+          evidence: [`Recorded assertion [live:${id}]; provider label or outcome corrected to match the runtime result.`]
+        });
         claimedEvidence.add(id);
       }
-      if (check.name.trim() !== first.checkName || check.status !== first.status) {
-        check.name = first.checkName;
-        check.status = first.status;
-        check.evidence = references.map(id =>
-          `Recorded assertion [live:${id}]; provider label or outcome corrected to match the runtime result.`);
-      }
-    }
+    } else normalizedChecks.push(check);
   }
+  result.checks = normalizedChecks;
   return result;
 }
 
@@ -288,7 +293,8 @@ evidence. Source observations are NOT passing tests; mark all unexecuted runtime
 or failed check MUST include the exact [live:live-N] evidence reference returned by a browser_assert_* or
 android_assert_* tool used by you, and its check argument must exactly match the reported check name.
 Use each live assertion evidence reference in only one check. If an assertion fails, report that same
-check as failed with its exact evidence reference; do not relabel or reuse the reference.
+check as failed with its exact evidence reference; do not relabel or reuse the reference. Report each
+browser_assert_* or android_assert_* result as a separate check, even if several results concern one feature.
 The handoff must describe concrete prerequisites, role transitions and expected behavior for future tests.
 Do not include passwords, tokens, personal data, or actual email verification codes.
 Configured live capabilities: ${JSON.stringify(liveCapabilities)}.
